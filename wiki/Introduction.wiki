@@ -1,0 +1,6 @@
+#summary mrim.py project introduction.
+
+= Introduction =
+
+At this moment only Russian speaking peaple are interesting in thats project, so I will write in Russian.
+На текущий момент библиотека поддерживает кодирование и декодирование сообщений. Для нескольких типов готовы обработчики.
