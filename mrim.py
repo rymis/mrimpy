@@ -8,6 +8,8 @@
 LIB_VERSION = '0.01'
 __version__ = LIB_VERSION
 
+MRIM_ENCODING='cp1251'
+
 import socket
 import struct
 import threading
@@ -457,7 +459,7 @@ class MailRuAgent(object):
 		self.sock = None
 		self.ping_period = 60
 		self.seq = 0
-		self.actions = { "message_received": [], "contact_received": [], "user_info": [], "offline_message": [] }
+		self.actions = { "message_received": [], "contact_list_received": [], "user_info": [], "offline_message": [] }
 
 	def add_handler(self, name, func, method = "append"):
 		" Add action handler "
@@ -573,6 +575,7 @@ class MailRuAgent(object):
 				h(msg, ui)
 		elif msg.msg == MRIM_CS_CONTACT_LIST2:
 			log("Contact list received...")
+			self._contact_list2(msg.data)
 		elif msg.msg == MRIM_CS_USER_STATUS:
 			log("User status received...")
 		elif msg.msg == MRIM_CS_OFFLINE_MESSAGE_ACK:
@@ -597,6 +600,70 @@ class MailRuAgent(object):
 				break
 
 		return ui
+
+	def _contact_list2(self, d):
+		D = MRIMData()
+		status = struct.unpack('<l', d[:4])[0]
+		if status != GET_CONTACTS_OK:
+			return # Nothing to do
+		d = d[4:]
+		gcnt = struct.unpack('<l', d[:4])[0]
+		d = d[4:]
+		d, gfmt_s = D.decode_type('LPS', d)
+		d, cfmt_s = D.decode_type('LPS', d)
+
+		gfmt = []
+		cfmt = []
+		for f in gfmt_s:
+			if f == 's':
+				gfmt.append('LPS')
+			elif f == 'u':
+				gfmt.append('UL')
+			else:
+				raise MRIMError, "Unknown format from server"
+		for f in cfmt_s:
+			if f == 's':
+				cfmt.append('LPS')
+			elif f == 'u':
+				cfmt.append('UL')
+			else:
+				raise MRIMError, "Unknown format from server"
+
+		groups = []
+		for i in range(gcnt):
+			g = []
+			for f in gfmt:
+				d, val = D.decode_type(f, d)
+				g.append(val)
+
+			if len(g) < 2:
+				raise MRIMError, "Invalid group format"
+
+			groups.append({'flags': g[0], 'name': g[1].decode(MRIM_ENCODING)})
+		cl = [[]]*gcnt
+
+		while len(d) > 0:
+			c = []
+			for f in cfmt:
+				d, val = D.decode_type(f, d)
+				c.append(val)
+
+			if len(c) < 6:
+				raise MRIMError, "Unknown contact format"
+
+			contact = {}
+			contact['flags'] = c[0]
+			contact['group'] = c[1]
+			contact['address'] = c[2]
+			contact['nick'] = c[3].decode(MRIM_ENCODING)
+			contact['server_flags'] = c[4]
+			contact['status'] = c[5]
+
+			if len(cl) > contact['group']: 
+				cl[contact['group']].append(contact)
+
+		for h in self.actions['contact_list_received']:
+			h(groups, cl)
 
 	def _ping(self):
 		log("PING")

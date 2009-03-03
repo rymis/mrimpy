@@ -85,6 +85,7 @@ class main_window(object):
 		self.glade = load_glade("main_window")
 		self.mrim = mrim.MailRuAgent()
 		self.mrim.add_handler('user_info', self.mrim_user_info)
+		self.mrim.add_handler('contact_list_received', self.contact_list_received)
 
 		self.name = None
 		self.password = None
@@ -94,6 +95,12 @@ class main_window(object):
 
 		self.__init_treeview(self.glade.contacts)
 		self.__init_status(self.glade.status)
+
+		if self.config['contact_list']:
+			self._contact_list = self.config['contact_list']
+			self.contact_list_received(*self._contact_list)
+		else:
+			self._contact_list = ([], [])
 
 		self.glade.autoconnect(self)
 
@@ -126,6 +133,7 @@ class main_window(object):
 			self.config['password'] = self.password
 		else:
 			self.config['password'] = None
+		self.config['contact_list'] = self._contact_list
 
 		self.config.save()
 		gtk.main_quit()
@@ -238,6 +246,27 @@ class main_window(object):
 
 	def mrim_user_info(self, msg, info):
 		print "UI: %s" % repr(info)
+
+	def contact_list_received(self, groups, contacts):
+		# Create contact list:
+		def my_del(model, path, iter, user_data):
+			model.remove(iter)
+			return False
+
+		self.glade.contacts.foreach(my_del, None)
+
+		M = self.glade.contacts.get_model()
+		for g, cl in zip(groups, contacts):
+			giter = M.append(None)
+			M.set(giter, 1, "%s (%d)" % (g['name'], len(cl)))
+
+			for c in cl:
+				iter = M.append(giter)
+				M.set(iter, 0, "%d" % c['status'], 1, c['address'])
+
+		self._contact_list = (groups, contacts)
+
+
 
 if __name__ == '__main__':
 	wnd = main_window()
