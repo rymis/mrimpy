@@ -17,6 +17,29 @@ try:
 except:
 	import pickle
 
+# Trying to determine mydir and data dir:
+RUNPATH = os.path.abspath(os.curdir)
+
+if os.path.isdir(os.path.join(RUNPATH, '..', 'share', 'mrimpy')):
+	DATAPATH = os.path.abspath(os.path.join(RUNPATH, '..', 'share', 'mrimpy', 'data'))
+elif os.path.isdir(os.path.join(RUNPATH, 'data')):
+	DATAPATH = os.path.abspath(os.path.join(RUNPATH, 'data'))
+else:
+	DATAPATH = RUNPATH
+
+# Determine home:
+if os.environ.has_key('HOME'):
+	HOMEPATH = os.environ['HOME']
+elif os.environ.has_key('HOMEPATH'):
+	if not os.environ.has_key('HOMEDRIVE'):
+		hd = 'C:'
+	else:
+		hd = os.environ['HOMEDRIVE']
+	HOMEPATH = os.path.join(hd, os.environ['HOMEPATH'])
+elif os.environ.has_key('WINDIR'):
+	HOMEPATH = os.environ['WINDIR']
+else:
+	HOMEPATH = RUNPATH
 
 class GladeWrapper(object):
 	def __init__(self, glade):
@@ -36,10 +59,7 @@ class Config(object):
 			self.load()
 
 	def __cfg_name(self, appname):
-		if os.environ.has_key('HOME'):
-			return os.path.join(os.environ['HOME'], '.%s' % appname)
-		else:
-			return os.path.abspath(os.curdir, '%s.cfg' % appname)
+		return os.path.join(HOMEPATH, '.%s' % appname)
 
 	def save(self, appname = None):
 		if not appname:
@@ -73,6 +93,63 @@ def load_glade(name):
 	if not name.endswith('.glade'):
 		name = name + '.glade'
 	return GladeWrapper(gtk.glade.XML(name))
+
+class ChatBody(gtk.VBox):
+	def __init__(self, address, nickname):
+		gtk.VBox.__init__(self)
+		self.address = address
+		self.nickname = nickname
+		self.chat = gtk.TextView()
+		self.msg = gtk.TextView()
+		self.pack_start(self.chat, True, True, 4)
+		self.pack_start(self.msg, False, True, 4)
+		self.msg.connect('key-press-event', self._check_enter)
+		self.mrim = None
+
+	def _check_enter(self, w, event):
+		if event.keyval == gtk.keysyms.Return:
+			self._send_message()
+			return True
+		else:
+			return False
+
+	def _send_message(self):
+		print "Sending message..."
+
+class message_window(object):
+	def __init__(self, parent, mrim):
+		self.mrim = mrim
+		self.glade = load_glade('message_window')
+		# self.glade.window.set_parent(parent)
+		self.glade.window.set_destroy_with_parent(True)
+
+		self.glade.autoconnect(self)
+
+	def show(self):
+		self.glade.window.show_all()
+		self.glade.window.present()
+
+	def hide(self):
+		self.glade.window.hide()
+
+	def add_chat(self, address, nickname):
+		" Add chat tab. If exist - activate it "
+		try:
+			self.activate_chat(address)
+			return True
+		except:
+			pass
+
+		lbl = self._create_chat_label(address, nickname)
+		body = ChatBody(address, nickname)
+		body.mrim = self.mrim
+
+		self.glade.notebook.append_page(body, lbl)
+
+	def _create_chat_label(self, address, nickname):
+		lbl = gtk.Label(address)
+		lbl._address = address
+		return lbl
 
 MRIM_STATUSES = [
 		( "Offline", mrim.STATUS_OFFLINE ),
@@ -113,6 +190,8 @@ class main_window(object):
 		if self.save_password:
 			self.password = self.config['password']
 
+		self.msg_wnd = message_window(self.glade.window1, self.mrim)
+
 		self.glade.window1.show_all()
 
 	def _idle(self):
@@ -137,6 +216,15 @@ class main_window(object):
 
 		self.config.save()
 		gtk.main_quit()
+
+	def contacts_row_activated_cb(self, w, path, clmn):
+		model = self.glade.contacts.get_model()
+		iter = model.get_iter(path)
+		address = model.get(iter, 1)[0]
+		nickname = address # TODO: real nickname
+
+		self.msg_wnd.add_chat(address, nickname)
+		self.msg_wnd.show()
 
 	def menu_quit(self, w):
 		self.glade.window1.destroy()
@@ -265,6 +353,7 @@ class main_window(object):
 				M.set(iter, 0, "%d" % c['status'], 1, c['address'])
 
 		self._contact_list = (groups, contacts)
+
 
 
 
