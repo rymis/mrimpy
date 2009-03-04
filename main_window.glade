@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE glade-interface SYSTEM "glade-2.0.dtd">
-<!--Generated with glade3 3.4.5 on Mon Mar  2 15:53:57 2009 -->
+<!--Generated with glade3 3.4.5 on Wed Mar  4 13:46:25 2009 -->
 <glade-interface>
   <widget class="GtkWindow" id="window1">
     <signal name="destroy" handler="wnd_destroy"/>
@@ -85,6 +85,7 @@
           <widget class="GtkTreeView" id="contacts">
             <property name="visible">True</property>
             <property name="can_focus">True</property>
+            <signal name="row_activated" handler="contacts_row_activated_cb"/>
           </widget>
           <packing>
             <property name="position">1</property>
