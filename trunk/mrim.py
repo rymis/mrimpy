@@ -15,6 +15,8 @@ import struct
 import threading
 import select
 import time
+import base64
+from traceback import print_exc
 
 #try:
 #	import syslog
@@ -113,6 +115,11 @@ For example:
 			return struct.pack('<l', int(val))
 		elif type == 'LPS':
 			return struct.pack('<l%ds'%len(val), len(val), val)
+		elif type == 'UIDL':
+			v = base64.b64decode(val)
+			if len(v) != 8:
+				raise MRIMError, "Invalid parameter passed to UIDL"
+			return v
 		else:
 			raise MRIMError, "Unknon type: %s" % type
 
@@ -123,6 +130,9 @@ For example:
 		elif type == 'LPS':
 			len = struct.unpack('<l', data[:4])[0]
 			return (data[len+4:], data[4:len+4])
+		elif type == 'UIDL':
+			val = base64.b64encode(data[:8])
+			return (data[8:], val)
 		else:
 			raise MRIMError, "Unknon type: %s" % type
 
@@ -185,7 +195,7 @@ mrim_types = [
 			'message', 'LPS',
 			'rtf', 'LPS'
 		)
-	)
+	),
 ]
 
 def get_mrim_data(type):
@@ -452,26 +462,86 @@ GET_CONTACTS_INTERR =		0x0002
 	#define CONTACT_INTFLAG_NOT_AUTHORIZED	0x0001
 
 ###############################################################################
+
+class MRIMContact(object):
+	def __init__(self):
+		self.address = u""
+		self.nick = u""
+		self.group = -1
+		self.group_name = u""
+		self.server_flags = 0
+		self.status = STATUS_OFFLINE
+
+class MRIMPlugin(object):
+	def message_received(self, message):
+		" Callback of received message "
+		pass
+	
+	def message_sent(self, message):
+		" Called, when message sent. (Don't work at this time) "
+		pass
+
+	def register(self, mrim):
+		" This method will be call'ed for register this plugin "
+		self.mrim = mrim
+
+	def is_my_message(self, mrim_type):
+		" Return is message supported by plugin "
+		if hasattr(self, 'MESSAGE'):
+			return mrim_type == self.MESSAGE
+		return False
+
 class MailRuAgent(object):
 	" main class for protocol "
 
-	def __init__(self):
+	def __init__(self, no_load_plugins = False):
 		self.sock = None
 		self.ping_period = 60
 		self.seq = 0
+		self.plugins = {}
+		self.methods = {}
 		self.actions = { "message_received": [], "contact_list_received": [], "user_info": [], "offline_message": [] }
+
+		if not no_load_plugins:
+			import mrim_plugins
+			self.load_plugins(mrim_plugins.PLUGINS_ALL)
+
+	def load_plugins(self, plugins):
+		" Load all plugins from plugins list "
+		for p in plugins:
+			self.plugins[p.__class__.__name__] = p
+			p.register(self)
+
+	def call_action(self, name, args):
+		" Call action name with args: "
+		log("Action <%s>" % name)
+		if self.actions.has_key(name):
+			for h in self.actions[name]:
+				try:
+					h(*args)
+				except:
+					log("Error: Action handler failed")
+					print_exc()
 
 	def add_handler(self, name, func, method = "append"):
 		" Add action handler "
-		if self.actions.has_key(name):
-			if method == 'append':
-				self.actions[name].append(func)
-			elif method == 'prepend':
-				self.actions[name].insert(0, func)
-			else:
-				raise MRIMError, "Unknown method: %s" % method
+		if not self.actions.has_key(name):
+			self.actions[name] = []
+
+		if method == 'append':
+			self.actions[name].append(func)
+		elif method == 'prepend':
+			self.actions[name].insert(0, func)
 		else:
-			raise MRIMError, "Unsupported action: %s" % name
+			raise MRIMError, "Unknown method: %s" % method
+
+	def add_method(self, name, func):
+		if self.methods.has_key(name):
+			raise MRIMError, "Duplicate method definition: %s" % name
+		self.methods[name] = func
+
+	def __getattr__(self, name):
+		return self.methods[name]
 
 	def connect(self, user, password, server = 'mrim.mail.ru', port = 2042, status = STATUS_ONLINE):
 		" Connect to mail.ru server "
@@ -544,10 +614,13 @@ class MailRuAgent(object):
 		return self.sock != None
 
 	def close(self):
-		" Logout and lose connection "
+		" Logout and close connection "
 		if self.sock:
 			self.sock.close()
 			self.sock = None
+
+	def send(self, msg):
+		msg.send(self.sock)
 
 	def idle(self):
 		" this function will try to read server message, and if present call action handler. Also if need ping processed. "
@@ -569,101 +642,11 @@ class MailRuAgent(object):
 		log("New message from server: %s"% repr(msg))
 		# TODO: call action handlers
 
-		if msg.msg == MRIM_CS_USER_INFO:
-			ui = self._user_info_decode(msg.data)
-			for h in self.actions['user_info']:
-				h(msg, ui)
-		elif msg.msg == MRIM_CS_CONTACT_LIST2:
-			log("Contact list received...")
-			self._contact_list2(msg.data)
-		elif msg.msg == MRIM_CS_USER_STATUS:
-			log("User status received...")
-		elif msg.msg == MRIM_CS_OFFLINE_MESSAGE_ACK:
-			log("Offline message received")
-		else:
-			log("Unknown message: [%X]" % msg.msg)
-
-	def _user_info_decode(self, d):
-		ui = {}
-		while True:
-			sl = struct.unpack('<l', d[:4])[0]
-			key = d[4:sl + 4]
-			d = d[4+sl:]
-
-			sl = struct.unpack('<l', d[:4])[0]
-			val = d[4:sl + 4]
-			d = d[4+sl:]
-
-			ui[key] = val
-
-			if len(d) < 4:
-				break
-
-		return ui
-
-	def _contact_list2(self, d):
-		D = MRIMData()
-		status = struct.unpack('<l', d[:4])[0]
-		if status != GET_CONTACTS_OK:
-			return # Nothing to do
-		d = d[4:]
-		gcnt = struct.unpack('<l', d[:4])[0]
-		d = d[4:]
-		d, gfmt_s = D.decode_type('LPS', d)
-		d, cfmt_s = D.decode_type('LPS', d)
-
-		gfmt = []
-		cfmt = []
-		for f in gfmt_s:
-			if f == 's':
-				gfmt.append('LPS')
-			elif f == 'u':
-				gfmt.append('UL')
-			else:
-				raise MRIMError, "Unknown format from server"
-		for f in cfmt_s:
-			if f == 's':
-				cfmt.append('LPS')
-			elif f == 'u':
-				cfmt.append('UL')
-			else:
-				raise MRIMError, "Unknown format from server"
-
-		groups = []
-		for i in range(gcnt):
-			g = []
-			for f in gfmt:
-				d, val = D.decode_type(f, d)
-				g.append(val)
-
-			if len(g) < 2:
-				raise MRIMError, "Invalid group format"
-
-			groups.append({'flags': g[0], 'name': g[1].decode(MRIM_ENCODING)})
-		cl = [[]]*gcnt
-
-		while len(d) > 0:
-			c = []
-			for f in cfmt:
-				d, val = D.decode_type(f, d)
-				c.append(val)
-
-			if len(c) < 6:
-				raise MRIMError, "Unknown contact format"
-
-			contact = {}
-			contact['flags'] = c[0]
-			contact['group'] = c[1]
-			contact['address'] = c[2]
-			contact['nick'] = c[3].decode(MRIM_ENCODING)
-			contact['server_flags'] = c[4]
-			contact['status'] = c[5]
-
-			if len(cl) > contact['group']: 
-				cl[contact['group']].append(contact)
-
-		for h in self.actions['contact_list_received']:
-			h(groups, cl)
+		for pn in self.plugins:
+			p = self.plugins[pn]
+			if p.is_my_message(msg.msg):
+				log("Plugin %s: processing message..." % pn)
+				p.message_received(msg)
 
 	def _ping(self):
 		log("PING")

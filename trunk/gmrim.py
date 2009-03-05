@@ -11,7 +11,8 @@ import gobject
 import mrim
 import os, os.path
 import sys
-import traceback
+import shelve
+from traceback import print_exc
 try:
 	import cPickle as pickle
 except:
@@ -51,32 +52,64 @@ class GladeWrapper(object):
 	def autoconnect(self, *args):
 		self._glade.signal_autoconnect(*args)
 
+class mem_storage(dict):
+	def __init__(self):
+		dict.__init__(self)
+
+	def close(self):
+		pass
+
+	def sync(self):
+		pass
+
 class Config(object):
-	def __init__(self, appname = None):
+	def __init__(self, appname):
 		self.appname = appname
-		self.options = {}
-		if appname:
-			self.load()
+		self.options = mem_storage()
+		self.contacts = mem_storage()
+		self.history = None
+		self._dirname = self.__cfg_dir(appname)
+		if self._dirname:
+			try:
+				self.options = shelve.open(os.path.join(self._dirname, 'options.slv'), 'c')
+			except:
+				print "Warning: can't open config, using memory configuration"
+				print_exc()
+				self.options = mem_storage()
 
-	def __cfg_name(self, appname):
-		return os.path.join(HOMEPATH, '.%s' % appname)
+			try:
+				self.contacts = shelve.open(os.path.join(self._dirname, 'contacts.slv'), 'c')
+			except:
+				print "Warning: can't open contacts cache, using memory configuration"
+				print_exc()
+				self.contacts = mem_storage()
 
-	def save(self, appname = None):
-		if not appname:
-			appname = self.appname
-		f = open(self.__cfg_name(appname), 'wb')
-		pickle.dump(self.options, f)
-		f.close()
+			try:
+				self.history = None
+			except:
+				self.history = None # Don't use history
+		else:
+			print "WARNING: Can not open configuration directory. Using memory configuration"
 
-	def load(self, appname = None):
-		if not appname:
-			appname = self.appname
-		try:
-			f = open(self.__cfg_name(appname), 'rb')
-			self.options = pickle.load(f)
-			f.close()
-		except:
-			self.options = {}
+	def sync(self):
+		" Save options: "
+		self.options.sync()
+		self.contacts.sync()
+
+	def close(self):
+		" Sync and exit "
+		self.sync()
+		self.options.close()
+		self.contacts.close()
+
+	def __cfg_dir(self, appname):
+		p = os.path.join(HOMEPATH, '.%s' % appname)
+		if not os.path.isdir(p):
+			try:
+				os.makedirs(p, 0700)
+			except:
+				return None
+		return p
 
 	def __getitem__(self, name):
 		if self.options.has_key(name):
@@ -86,6 +119,11 @@ class Config(object):
 
 	def __setitem__(self, name, val):
 		self.options[name] = val
+
+	def history_add(self, message):
+		" Add message to history "
+		# TODO
+		pass
 
 def load_glade(name):
 	" Load glade from file "
@@ -146,10 +184,18 @@ class message_window(object):
 
 		self.glade.notebook.append_page(body, lbl)
 
+	def add_message(self, msg):
+		self.add_chat(msg['From'])
+		# TODO:
+
+
 	def _create_chat_label(self, address, nickname):
 		lbl = gtk.Label(address)
 		lbl._address = address
 		return lbl
+
+	def window_delete_event_cb(self, w, d):
+		return w.hide_on_delete()
 
 MRIM_STATUSES = [
 		( "Offline", mrim.STATUS_OFFLINE ),
@@ -162,7 +208,8 @@ class main_window(object):
 		self.glade = load_glade("main_window")
 		self.mrim = mrim.MailRuAgent()
 		self.mrim.add_handler('user_info', self.mrim_user_info)
-		self.mrim.add_handler('contact_list_received', self.contact_list_received)
+		self.mrim.add_handler('contact_list', self.contact_list_received)
+		self.mrim.add_handler('offline_message', self.offline_message)
 
 		self.name = None
 		self.password = None
@@ -173,11 +220,13 @@ class main_window(object):
 		self.__init_treeview(self.glade.contacts)
 		self.__init_status(self.glade.status)
 
-		if self.config['contact_list']:
-			self._contact_list = self.config['contact_list']
-			self.contact_list_received(*self._contact_list)
-		else:
-			self._contact_list = ([], [])
+		self._clist = self.config['contact_list']
+		if not self._clist:
+			self._clist = ([], [])
+		for g in self._clist[1]:
+			for c in g:
+				c['status'] = mrim.STATUS_OFFLINE
+		self.contact_list_received(*self._clist)
 
 		self.glade.autoconnect(self)
 
@@ -199,22 +248,20 @@ class main_window(object):
 			self.mrim.idle()
 		except:
 			print "Unknown error in idle function"
-			traceback.print_exc()
+			print_exc()
 		return True
 
 	def wnd_destroy(self, w):
 		# w = self.glade.window1
-		self.config['window_size'] = w.get_size()
-
+		self.config['contact_list'] = self._clist
 		self.config['name'] = self.name
 		self.config['save_password'] = self.save_password
 		if self.save_password:
 			self.config['password'] = self.password
 		else:
 			self.config['password'] = None
-		self.config['contact_list'] = self._contact_list
 
-		self.config.save()
+		self.config.close()
 		gtk.main_quit()
 
 	def contacts_row_activated_cb(self, w, path, clmn):
@@ -227,6 +274,7 @@ class main_window(object):
 		self.msg_wnd.show()
 
 	def menu_quit(self, w):
+		self.config['window_size'] = self.glade.window1.get_size()
 		self.glade.window1.destroy()
 
 	def __init_treeview(self, tv):
@@ -352,10 +400,12 @@ class main_window(object):
 				iter = M.append(giter)
 				M.set(iter, 0, "%d" % c['status'], 1, c['address'])
 
-		self._contact_list = (groups, contacts)
+		self._clist = (groups, contacts)
 
-
-
+	def offline_message(self, msg):
+		from = msg['From']
+		self.msg.show()
+		self.msg.add_message(msg)
 
 if __name__ == '__main__':
 	wnd = main_window()
