@@ -8,6 +8,7 @@
 import gtk
 import gtk.glade
 import gobject
+import pango
 import mrim
 import os, os.path
 import sys
@@ -133,6 +134,10 @@ def load_glade(name):
 	return GladeWrapper(gtk.glade.XML(name))
 
 class ChatBody(gtk.VBox):
+	# TODO: from config
+	in_color = 'brown'
+	out_color = 'blue'
+
 	def __init__(self, address, nickname):
 		gtk.VBox.__init__(self)
 		self.address = address
@@ -143,6 +148,14 @@ class ChatBody(gtk.VBox):
 		self.pack_start(self.msg, False, True, 4)
 		self.msg.connect('key-press-event', self._check_enter)
 		self.mrim = None
+		self.chat.set_editable(False)
+		buf = self.chat.get_buffer()
+
+		buf.create_tag("italic", style=pango.STYLE_ITALIC)
+		buf.create_tag("bold", weight=pango.WEIGHT_BOLD)
+		buf.create_tag("outgoing", foreground = self.out_color)
+		buf.create_tag("incoming", foreground = self.in_color)
+		buf.create_tag("monospace", family="monospace")
 
 	def _check_enter(self, w, event):
 		if event.keyval == gtk.keysyms.Return:
@@ -170,11 +183,11 @@ class message_window(object):
 	def hide(self):
 		self.glade.window.hide()
 
-	def add_chat(self, address, nickname):
+	def add_chat(self, address, nickname = ''):
 		" Add chat tab. If exist - activate it "
 		try:
-			self.activate_chat(address)
-			return True
+			if self.activate_chat(address):
+				return True
 		except:
 			pass
 
@@ -183,11 +196,45 @@ class message_window(object):
 		body.mrim = self.mrim
 
 		self.glade.notebook.append_page(body, lbl)
+		self.glade.notebook.set_current_page( -1 ) # It is not work, but will be for feature
 
-	def add_message(self, msg):
-		self.add_chat(msg['From'])
-		# TODO:
+	def add_message(self, msg, direction = 'C2S'):
+		" Add message to chat and history. Direction is string 'C2S' or 'S2C' "
+		out = (direction == 'C2S')
+		if out:
+			self.add_chat(msg['To'])
+			color = 'outgoing'
+		else:
+			color = 'incoming'
+			self.add_chat(msg['From'])
 
+		textview = self.glade.notebook.get_nth_page(self.glade.notebook.get_current_page()).chat
+		buf = textview.get_buffer()
+		iter = buf.get_end_iter()
+
+		buf.insert_with_tags_by_name(iter, "%s [" % msg['Date'], "monospace")
+		buf.insert_with_tags_by_name(iter, msg['From'], color, 'italic')
+		buf.insert_with_tags_by_name(iter, "]: ", "monospace")
+
+		# Insert message:
+		text_part = None
+		rtf_part = None
+		for part in msg.walk():
+			if part.get_content_maintype() == 'text':
+				if not text_part:
+					text_part = part.get_payload(decode = True)
+				else:
+					rtf_part = part.get_payload(decode = True)
+		if not rtf_part:
+			if text_part:
+				buf.insert(iter, text_part.decode('cp1251', 'replace'))
+		else:
+			self._insert_rtf(buf, iter, rtf_part)
+
+	def _insert_rtf(self, buf, iter, rtf_mrim):
+		" insert RTF text "
+		text = self.mrim.rtf2text(rtf_mrim)
+		buf.insert(iter, text_part)
 
 	def _create_chat_label(self, address, nickname):
 		lbl = gtk.Label(address)
@@ -196,6 +243,15 @@ class message_window(object):
 
 	def window_delete_event_cb(self, w, d):
 		return w.hide_on_delete()
+
+	def activate_chat(self, addr):
+		" Activate chat with contact <addr> "
+		for i in range(self.glade.notebook.get_n_pages()):
+			page = self.glade.notebook.get_nth_page(i)
+			if page.address == addr:
+				self.glade.notebook.set_current_page(i)
+				return True
+		return False
 
 MRIM_STATUSES = [
 		( "Offline", mrim.STATUS_OFFLINE ),
@@ -403,9 +459,9 @@ class main_window(object):
 		self._clist = (groups, contacts)
 
 	def offline_message(self, msg):
-		from = msg['From']
-		self.msg.show()
-		self.msg.add_message(msg)
+		frm = msg['From']
+		self.msg_wnd.show()
+		self.msg_wnd.add_message(msg, 'S2C')
 
 if __name__ == '__main__':
 	wnd = main_window()

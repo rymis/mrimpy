@@ -6,6 +6,8 @@ Plugins for mrim.py.
 
 from mrim import *
 import email
+import zlib
+import base64
 
 class UserInfo(MRIMPlugin):
 	" MRIM_CS_USER_INFO processor "
@@ -127,4 +129,20 @@ class OfflineMessage(MRIMPlugin):
 		log("Removing message with UIDL[%s]" % uidl)
 		# TODO remove message
 
-PLUGINS_ALL = [ UserInfo(), ContactList2(), OfflineMessage() ]
+class RTFFormat(MRIMPlugin):
+	def register(self, mrim):
+		self.mrim = mrim
+		mrim.add_method('rtf2text', self.rtf2text)
+
+	def rtf_decode(self, rtf):
+		msg = zlib.decompress(base64.b64decode(rtf))
+		D = MRIMData( ('lpscnt', 'UL', 'rtf', 'LPS', 'background', 'LPS') )
+		d, rtf_f = D.decode(msg)
+
+		return rtf_f['rtf']
+
+	def rtf2text(self, rtf):
+		return rtf_decode(rtf)
+
+PLUGINS_ALL = [ UserInfo(), ContactList2(), OfflineMessage(), RTFFormat() ]
+
