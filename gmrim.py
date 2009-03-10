@@ -157,15 +157,23 @@ class ChatBody(gtk.VBox):
 		buf.create_tag("incoming", foreground = self.in_color)
 		buf.create_tag("monospace", family="monospace")
 
+		self.send_message = None
+
 	def _check_enter(self, w, event):
 		if event.keyval == gtk.keysyms.Return:
 			self._send_message()
+			self.msg.get_buffer().set_text("")
 			return True
 		else:
 			return False
 
 	def _send_message(self):
+		b = self.msg.get_buffer()
+		msg_txt = b.get_text(b.get_start_iter(), b.get_end_iter(), False)
+		print repr(msg_txt.decode('utf-8'))
 		print "Sending message..."
+		if self.send_message:
+			self.send_message(msg_txt, self.address)
 
 class message_window(object):
 	def __init__(self, parent, mrim):
@@ -173,6 +181,8 @@ class message_window(object):
 		self.glade = load_glade('message_window')
 		# self.glade.window.set_parent(parent)
 		self.glade.window.set_destroy_with_parent(True)
+
+		self.glade.window.set_size_request(640, 480) # TODO: size from config as in main window
 
 		self.glade.autoconnect(self)
 
@@ -252,6 +262,9 @@ class message_window(object):
 				self.glade.notebook.set_current_page(i)
 				return True
 		return False
+
+	def send_message(self, txt):
+		self.add_message(txt, address = addr, direction = 'C2S')
 
 MRIM_STATUSES = [
 		( "Offline", mrim.STATUS_OFFLINE ),
@@ -378,6 +391,7 @@ class main_window(object):
 		pass
 
 	def status_changed(self, w):
+		print "Status changed..."
 		st = self.glade.status
 
 		model = st.get_model()
