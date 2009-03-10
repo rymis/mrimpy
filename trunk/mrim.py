@@ -491,6 +491,8 @@ class MRIMMessage(object):
 		D = MRIMData( ('flags', 'UL', 'to', 'LPS', 'txt', 'LPS', 'rtf', 'TXT') )
 		D.data['flags'] = self.flags
 		D.data['to'] = self.address
+		if isinstance(self.msg, unicode):
+			self.msg = self.msg.encode(MRIM_ENCODING, 'replace')
 		D.data['txt'] = self.msg
 		D.data['rtf'] = ' '
 
@@ -585,6 +587,7 @@ class MailRuAgent(object):
 		self.plugins = {}
 		self.methods = {}
 		self.actions = { "message_received": [], "contact_list_received": [], "user_info": [], "offline_message": [] }
+		self._msg_cache = []
 
 		if not no_load_plugins:
 			import mrim_plugins
@@ -755,6 +758,25 @@ class MailRuAgent(object):
 
 		if status == STATUS_OFFLINE:
 			self.close()
+
+	def send_message(self, msg, addr = None):
+		if not isinstance(msg, MRIMMessage):
+			txt = msg
+			if not addr:
+				raise MRIMError, "Not enought params in send_message "
+			msg = MRIMMessage(msg = txt, flags = MESSAGE_FLAG_NORECV, address = addr)
+
+		M = mrim_packet(msg = MRIM_CS_MESSAGE)
+		M.seq = self.seq
+		self.seq += 1
+		M.data = msg.encode()
+
+		# Save this message to cache:
+		if not (msg.flags & MESSAGE_FLAG_NORECV):
+			self._msg_cache.append( (M.seq, msg) )
+		msg.send(self.sock)
+
+		return M.seq
 
 if __name__ == '__main__':
 	d = MRIMData(('name', 'LPS', 'value', 'UL'))
