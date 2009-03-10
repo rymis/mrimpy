@@ -203,20 +203,21 @@ class message_window(object):
 
 		lbl = self._create_chat_label(address, nickname)
 		body = ChatBody(address, nickname)
+		body.send_message = self.send_message
 		body.mrim = self.mrim
 
 		self.glade.notebook.append_page(body, lbl)
 		self.glade.notebook.set_current_page( -1 ) # It is not work, but will be for feature
 
-	def add_message(self, msg, direction = 'C2S'):
+	def add_message(self, msg, addr_from = None, addr_to = None, direction = 'C2S'):
 		" Add message to chat and history. Direction is string 'C2S' or 'S2C' "
 		out = (direction == 'C2S')
 		if out:
-			self.add_chat(msg['To'])
+			self.add_chat(addr_to)
 			color = 'outgoing'
 		else:
 			color = 'incoming'
-			self.add_chat(msg['From'])
+			self.add_chat(addr_from)
 
 		textview = self.glade.notebook.get_nth_page(self.glade.notebook.get_current_page()).chat
 		buf = textview.get_buffer()
@@ -227,19 +228,7 @@ class message_window(object):
 		buf.insert_with_tags_by_name(iter, "]: ", "monospace")
 
 		# Insert message:
-		text_part = None
-		rtf_part = None
-		for part in msg.walk():
-			if part.get_content_maintype() == 'text':
-				if not text_part:
-					text_part = part.get_payload(decode = True)
-				else:
-					rtf_part = part.get_payload(decode = True)
-		if not rtf_part:
-			if text_part:
-				buf.insert(iter, text_part.decode('cp1251', 'replace'))
-		else:
-			self._insert_rtf(buf, iter, rtf_part)
+		buf.insert(iter, msg.decode('cp1251', 'replace'))
 
 	def _insert_rtf(self, buf, iter, rtf_mrim):
 		" insert RTF text "
