@@ -144,5 +144,5 @@ class RTFFormat(MRIMPlugin):
 	def rtf2text(self, rtf):
 		return rtf_decode(rtf)
 
-PLUGINS_ALL = [ UserInfo(), ContactList2(), OfflineMessage(), RTFFormat() ]
+PLUGINS_ALL = [ UserInfo, ContactList2, OfflineMessage, RTFFormat ]
 

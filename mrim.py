@@ -16,6 +16,8 @@ import threading
 import select
 import time
 import base64
+import zlib
+import email
 from traceback import print_exc
 
 #try:
@@ -472,6 +474,87 @@ class MRIMContact(object):
 		self.server_flags = 0
 		self.status = STATUS_OFFLINE
 
+class MRIMMessage(object):
+	def __init__(self, msg = u"", xml_msg = None, rtf_msg = None, flags = 0, mrim = None, address = None):
+		" Create new message "
+		self.msg = msg
+		self.xml_msg = xml_msg
+		self.rtf_msg = rtf_msg
+		self.flags = flags
+		self.mrim = None
+		self.uidl = None
+		self.address = address
+
+	def encode(self):
+		" Encode message for sending "
+		# TODO: RTF part
+		D = MRIMData( ('flags', 'UL', 'to', 'LPS', 'txt', 'LPS', 'rtf', 'TXT') )
+		D.data['flags'] = self.flags
+		D.data['to'] = self.address
+		D.data['txt'] = self.msg
+		D.data['rtf'] = ' '
+
+		return D.encode()
+
+	def decode(self, data):
+		" Decode online message "
+		pass
+
+	def decode_offline(self, rfc822):
+		" Decode MRIM offline message "
+		D = MRIMData( ('uidl', 'UIDL', 'message', 'LPS') )
+		D.decode(msg.data)
+		M = email.message_from_string(D.data['message'])
+
+		# Process message:
+		self.address = M['from']
+		text_part = None
+		rtf_part = None
+		for part in M.walk():
+			if part.get_content_maintype() == 'text':
+				if not text_part:
+					text_part = part.get_payload(decode = True)
+				else:
+					rtf_part = part.get_payload(decode = True)
+
+		self.msg = text_part.decode(MRIM_ENCODING, 'replace')
+		try:
+			if rtf_part:
+				self.rtf_msg = zlib.decompress(base64.b64decode(rtf_part))
+		except:
+			self.rtf_msg = None
+
+		self.uidl = D.data['uidl']
+
+		self._make_xml()
+
+	def submit(self):
+		" If this is offline message - then delete it, else sens MSG_RECV to server "
+		pass
+
+	def status(self):
+		" Status of sent message "
+		return 0
+
+	def is_authorization(self):
+		" Is message authorization request "
+		return ((self.flags & MESSAGE_FLAG_AUTHORIZE) != 0)
+
+	def is_offline(self):
+		" Is message delivered offline "
+		return ((self.flags & MESSAGE_FLAG_OFFLINE) != 0)
+
+	def set_flag(self, flag):
+		" Set flags to message "
+		self.flags |= flag
+
+	def _make_xml(self):
+		if not self.rtf_msg:
+			self.xml_msg = self.txt_msg
+		else:
+			# TODO: process RTF
+			msg = self.rtf.replace('{', '').replace('}', '')
+
 class MRIMPlugin(object):
 	def message_received(self, message):
 		" Callback of received message "
@@ -491,6 +574,7 @@ class MRIMPlugin(object):
 			return mrim_type == self.MESSAGE
 		return False
 
+
 class MailRuAgent(object):
 	" main class for protocol "
 
@@ -509,8 +593,8 @@ class MailRuAgent(object):
 	def load_plugins(self, plugins):
 		" Load all plugins from plugins list "
 		for p in plugins:
-			self.plugins[p.__class__.__name__] = p
-			p.register(self)
+			plug = self.plugins[p.__name__] = p()
+			plug.register(self)
 
 	def call_action(self, name, args):
 		" Call action name with args: "
