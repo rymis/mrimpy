@@ -1,0 +1,92 @@
+<?xml version="1.0" standalone="no"?> <!--*- mode: xml -*-->
+<!DOCTYPE glade-interface SYSTEM "http://gazpacho.sicem.biz/gazpacho-0.1.dtd">
+<glade-interface>
+    <widget class="GtkDialog" id="dialog">
+        <property name="default_height">260</property>
+        <property name="default_width">320</property>
+        <property name="height_request">480</property>
+        <property name="title" context="yes" translatable="yes">Запрос авторизации...</property>
+        <property name="type_hint">normal</property>
+        <property name="width_request">640</property>
+        <child internal-child="vbox">
+            <widget class="GtkVBox" id="dialog1-vbox">
+                <property name="border_width">2</property>
+                <property name="visible">True</property>
+                <child>
+                    <widget class="GtkVBox" id="vbox1">
+                        <property name="visible">True</property>
+                        <child>
+                            <widget class="GtkHBox" id="hbox1">
+                                <property name="visible">True</property>
+                                <child>
+                                    <widget class="GtkLabel" id="label1">
+                                        <property name="label" context="yes" translatable="yes">Адрес:</property>
+                                        <property name="visible">True</property>
+                                        <property name="xalign">0.0</property>
+                                    </widget>
+                                    <packing>
+                                        <property name="expand">False</property>
+                                    </packing>
+                                </child>
+                                <child>
+                                    <widget class="GtkEntry" id="entry">
+                                        <property name="visible">True</property>
+                                    </widget>
+                                    <packing>
+                                        <property name="position">1</property>
+                                    </packing>
+                                </child>
+                            </widget>
+                            <packing>
+                                <property name="expand">False</property>
+                            </packing>
+                        </child>
+                        <child>
+                            <widget class="GtkTextView" id="textview">
+                                <property name="is_focus">True</property>
+                                <property name="visible">True</property>
+                            </widget>
+                            <packing>
+                                <property name="position">1</property>
+                            </packing>
+                        </child>
+                    </widget>
+                    <packing>
+                        <property name="position">2</property>
+                    </packing>
+                </child>
+                <child internal-child="action_area">
+                    <widget class="GtkHButtonBox" id="dialog1-action_area">
+                        <property name="border_width">5</property>
+                        <property name="layout_style">end</property>
+                        <property name="spacing">6</property>
+                        <property name="visible">True</property>
+                        <child>
+                            <widget class="GtkButton" id="button2">
+                                <property name="label">gtk-cancel</property>
+                                <property name="use_stock">True</property>
+                                <property name="visible">True</property>
+                                <signal handler="cancel_clicked" name="clicked"/>
+                            </widget>
+                        </child>
+                        <child>
+                            <widget class="GtkButton" id="button1">
+                                <property name="label">gtk-ok</property>
+                                <property name="use_stock">True</property>
+                                <property name="visible">True</property>
+                                <signal handler="ok_clicked" name="clicked"/>
+                            </widget>
+                            <packing>
+                                <property name="position">1</property>
+                            </packing>
+                        </child>
+                    </widget>
+                    <packing>
+                        <property name="expand">False</property>
+                        <property name="pack_type">end</property>
+                    </packing>
+                </child>
+            </widget>
+        </child>
+    </widget>
+</glade-interface>

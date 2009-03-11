@@ -505,7 +505,7 @@ class MRIMMessage(object):
 	def decode_offline(self, rfc822):
 		" Decode MRIM offline message "
 		D = MRIMData( ('uidl', 'UIDL', 'message', 'LPS') )
-		D.decode(msg.data)
+		D.decode(rfc822)
 		M = email.message_from_string(D.data['message'])
 
 		# Process message:
@@ -519,7 +519,11 @@ class MRIMMessage(object):
 				else:
 					rtf_part = part.get_payload(decode = True)
 
-		self.msg = text_part.decode(MRIM_ENCODING, 'replace')
+		self.msg = ""
+		for s in text_part.split('\n'):
+			if not s.startswith('--'):
+				self.msg += "%s\n" % s
+		self.msg = self.msg.decode(MRIM_ENCODING, 'replace')
 		try:
 			if rtf_part:
 				self.rtf_msg = zlib.decompress(base64.b64decode(rtf_part))
@@ -552,7 +556,7 @@ class MRIMMessage(object):
 
 	def _make_xml(self):
 		if not self.rtf_msg:
-			self.xml_msg = self.txt_msg
+			self.xml_msg = self.msg
 		else:
 			# TODO: process RTF
 			msg = self.rtf.replace('{', '').replace('}', '')

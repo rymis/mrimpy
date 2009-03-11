@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <!DOCTYPE glade-interface SYSTEM "glade-2.0.dtd">
-<!--Generated with glade3 3.4.5 on Wed Mar  4 13:46:25 2009 -->
+<!--Generated with glade3 3.4.5 on Wed Mar 11 16:34:33 2009 -->
 <glade-interface>
   <widget class="GtkWindow" id="window1">
     <signal name="destroy" handler="wnd_destroy"/>
@@ -18,6 +18,14 @@
                 <child>
                   <widget class="GtkMenu" id="menu1">
                     <property name="visible">True</property>
+                    <child>
+                      <widget class="GtkMenuItem" id="menuitem5">
+                        <property name="visible">True</property>
+                        <property name="label" translatable="yes">Добавить контакт</property>
+                        <property name="use_underline">True</property>
+                        <signal name="activate" handler="add_contact_clicked"/>
+                      </widget>
+                    </child>
                     <child>
                       <widget class="GtkSeparatorMenuItem" id="separatormenuitem1">
                         <property name="visible">True</property>

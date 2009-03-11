@@ -13,6 +13,7 @@ import mrim
 import os, os.path
 import sys
 import shelve
+import datetime
 from traceback import print_exc
 try:
 	import cPickle as pickle
@@ -138,10 +139,11 @@ class ChatBody(gtk.VBox):
 	in_color = 'brown'
 	out_color = 'blue'
 
-	def __init__(self, address, nickname):
+	def __init__(self, address, nickname, mynick):
 		gtk.VBox.__init__(self)
 		self.address = address
 		self.nickname = nickname
+		self.mynick = mynick
 		self.chat = gtk.TextView()
 		self.msg = gtk.TextView()
 		self.pack_start(self.chat, True, True, 4)
@@ -171,9 +173,9 @@ class ChatBody(gtk.VBox):
 		b = self.msg.get_buffer()
 		msg_txt = b.get_text(b.get_start_iter(), b.get_end_iter(), False)
 		print repr(msg_txt.decode('utf-8'))
-		print "Sending message..."
 		if self.send_message:
-			self.send_message(msg_txt, self.address)
+			s = self.send_message
+			s(msg_txt, self.address)
 
 class message_window(object):
 	def __init__(self, parent, mrim):
@@ -193,7 +195,7 @@ class message_window(object):
 	def hide(self):
 		self.glade.window.hide()
 
-	def add_chat(self, address, nickname = ''):
+	def add_chat(self, address, nickname = '', my_nick = 'You'):
 		" Add chat tab. If exist - activate it "
 		try:
 			if self.activate_chat(address):
@@ -202,33 +204,57 @@ class message_window(object):
 			pass
 
 		lbl = self._create_chat_label(address, nickname)
-		body = ChatBody(address, nickname)
+		body = ChatBody(address, nickname, my_nick)
 		body.send_message = self.send_message
 		body.mrim = self.mrim
 
 		self.glade.notebook.append_page(body, lbl)
 		self.glade.notebook.set_current_page( -1 ) # It is not work, but will be for feature
 
-	def add_message(self, msg, addr_from = None, addr_to = None, direction = 'C2S'):
+	def add_message(self, msg, address = None, direction = 'C2S', date = None):
 		" Add message to chat and history. Direction is string 'C2S' or 'S2C' "
+		# TODO: XML message
+		if isinstance(msg, mrim.MRIMMessage):
+			address = msg.address
+			msg = msg.msg
+		elif isinstance(msg, str):
+			msg = msg.decode('utf-8', 'replace') # For messages from TextBuffer
+
 		out = (direction == 'C2S')
+
 		if out:
-			self.add_chat(addr_to)
+			self.add_chat(address)
 			color = 'outgoing'
 		else:
 			color = 'incoming'
-			self.add_chat(addr_from)
+			self.add_chat(address)
 
-		textview = self.glade.notebook.get_nth_page(self.glade.notebook.get_current_page()).chat
-		buf = textview.get_buffer()
+		if not date:
+			date = datetime.datetime.now()
+			sdate = date.time().strftime("%H:%M:%S")
+		else:
+			d = datetime.datetime.now()
+			if d.date() == date.date():
+				sdate = date.time().strftime("%H:%M:%S")
+			else:
+				sdate = date.ctime()
+
+		chat = self.glade.notebook.get_nth_page(self.glade.notebook.get_current_page())
+		if out:
+			a_from = chat.mynick
+			a_to = chat.address
+		else:
+			a_to = chat.mynick
+			a_from = chat.address
+
+		buf = chat.chat.get_buffer()
 		iter = buf.get_end_iter()
 
-		buf.insert_with_tags_by_name(iter, "%s [" % msg['Date'], "monospace")
-		buf.insert_with_tags_by_name(iter, msg['From'], color, 'italic')
-		buf.insert_with_tags_by_name(iter, "]: ", "monospace")
+		buf.insert_with_tags_by_name(iter, "[%s] " % sdate, "monospace")
+		buf.insert_with_tags_by_name(iter, "%s: " % a_from, color, 'italic')
 
 		# Insert message:
-		buf.insert(iter, msg.decode('cp1251', 'replace'))
+		buf.insert(iter, msg)
 
 	def _insert_rtf(self, buf, iter, rtf_mrim):
 		" insert RTF text "
@@ -252,8 +278,56 @@ class message_window(object):
 				return True
 		return False
 
-	def send_message(self, txt):
-		self.add_message(txt, address = addr, direction = 'C2S')
+	def send_message(self, txt, addr):
+		if not self.mrim.is_connected():
+			ErrorMessage(self.glade.wnd, "We don't support sending messages until you offline")
+			return
+		else:
+			try:
+				seq = self.mrim.send_message(txt, addr)
+				# TODO: save seq and wait for reply...
+			except:
+				ErrorMessage(self.glade.wnd, "Sending message failed")
+				return
+			self.add_message(txt, address = addr, direction = 'C2S')
+
+class authorization_window(object):
+	def __init__(self, parent, msg):
+		self.msg = msg
+		self.parent = parent
+		self.glade = load_glade('auth_req')
+
+		# TODO: message as XML
+		self.glade.wnd.set_title("Contact %s request authorization..." % msg.address)
+		buf = self.glade.textview.get_buffer()
+		buf.set_text(msg.msg)
+
+		self.glade.autoconnect(self)
+
+	def cancel_clicked(self, w):
+		self.glade.wnd.hide()
+
+	def ok_clicked(self, w):
+		self.msg.authorize()
+		self.glade.wnd.hide()
+
+class authorization_request(object):
+	def __init__(self, parent, mrim):
+		self.mrim = mrim
+		self.parent = parent
+		self.glade = load_glade('auth_dlg')
+		self.glade.autoconnect(self)
+
+	def cancel_clicked(self, w):
+		print "Cancel"
+
+		self.glade.dlg.hide()
+
+	def ok_clicked(self, w):
+		print "Ok"
+
+		self.glade.dlg.hide()
+
 
 MRIM_STATUSES = [
 		( "Offline", mrim.STATUS_OFFLINE ),
@@ -396,6 +470,9 @@ class main_window(object):
 			else:
 				self.mrim.change_status(status)
 
+	def add_contact_clicked(self, w):
+		print "Add new contact..."
+
 	def connect(self, status = mrim.STATUS_ONLINE):
 		" Connect. If need answere for name and password "
 		if not self.name or not self.password:
@@ -444,13 +521,14 @@ class main_window(object):
 
 	def contact_list_received(self, groups, contacts):
 		# Create contact list:
-		def my_del(model, path, iter, user_data):
-			model.remove(iter)
-			return False
-
-		self.glade.contacts.foreach(my_del, None)
-
 		M = self.glade.contacts.get_model()
+
+		while True:
+			iter = M.get_iter_first()
+			if not iter:
+				break
+			M.remove(iter)
+
 		for g, cl in zip(groups, contacts):
 			giter = M.append(None)
 			M.set(giter, 1, "%s (%d)" % (g['name'], len(cl)))
@@ -462,9 +540,10 @@ class main_window(object):
 		self._clist = (groups, contacts)
 
 	def offline_message(self, msg):
-		frm = msg['From']
 		self.msg_wnd.show()
-		self.msg_wnd.add_message(msg, 'S2C')
+		self.msg_wnd.add_message(msg, direction = 'S2C')
+		msg.submit()
+
 
 if __name__ == '__main__':
 	wnd = main_window()
