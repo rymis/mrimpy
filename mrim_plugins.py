@@ -110,11 +110,8 @@ class OfflineMessage(MRIMPlugin):
 
 	def message_received(self, msg):
 		" process offline message "
-		D = MRIMData( ('uidl', 'UIDL', 'message', 'LPS') )
-		D.decode(msg.data)
-		M = email.message_from_string(D.data['message'])
-
-		M['X-MRIM-UIDL'] = D.data['uidl']
+		M = MRIMMessage()
+		M.decode_offline(msg.data)
 
 		self.mrim.call_action('offline_message', [M])
 
