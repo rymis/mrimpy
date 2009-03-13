@@ -58,6 +58,11 @@ For example:
 	'msg_id', 'UL'
 ) is data of cs_message_recv. You can use simple form:
 	msg.data['from'] = 'nobody@mail.ru' and et.c. for manipulating this parameters.
+	Defined types are:
+		UL - unsigned long
+		UIDL - unique message ID (8 bytes)
+		LPS - string encoded as length:data
+		LPSO - optional string (decode only)
 	"""
 	def __init__(self, fmt = None):
 		self.fmt = []
@@ -116,12 +121,13 @@ For example:
 		if type == 'UL':
 			return struct.pack('<l', int(val))
 		elif type == 'LPS':
+			if isinstance(val, unicode):
+				val = val.encode(MRIM_ENCODING, 'replace')
 			return struct.pack('<l%ds'%len(val), len(val), val)
 		elif type == 'UIDL':
-			v = base64.b64decode(val)
-			if len(v) != 8:
+			if len(val) != 8:
 				raise MRIMError, "Invalid parameter passed to UIDL"
-			return v
+			return val
 		else:
 			raise MRIMError, "Unknon type: %s" % type
 
@@ -130,11 +136,15 @@ For example:
 		if type == 'UL':
 			return (data[4:], struct.unpack('<l', data[:4])[0])
 		elif type == 'LPS':
-			len = struct.unpack('<l', data[:4])[0]
-			return (data[len+4:], data[4:len+4])
+			ln = struct.unpack('<l', data[:4])[0]
+			return (data[ln+4:], data[4:ln+4])
+		elif type == 'LPSO':
+			if len(data) > 0:
+				return self.decode_type('LPS', data)
+			else:
+				return (data, "")
 		elif type == 'UIDL':
-			val = base64.b64encode(data[:8])
-			return (data[8:], val)
+			return (data[8:], data[:8])
 		else:
 			raise MRIMError, "Unknon type: %s" % type
 
@@ -483,24 +493,49 @@ class MRIMMessage(object):
 		self.flags = flags
 		self.mrim = None
 		self.uidl = None
+		self.msg_id = None
 		self.address = address
 
 	def encode(self):
 		" Encode message for sending "
 		# TODO: RTF part
-		D = MRIMData( ('flags', 'UL', 'to', 'LPS', 'txt', 'LPS', 'rtf', 'TXT') )
+		D = MRIMData( ('flags', 'UL', 'to', 'LPS', 'txt', 'LPS', 'rtf', 'LPS') )
 		D.data['flags'] = self.flags
 		D.data['to'] = self.address
-		if isinstance(self.msg, unicode):
-			self.msg = self.msg.encode(MRIM_ENCODING, 'replace')
 		D.data['txt'] = self.msg
-		D.data['rtf'] = ' '
+
+		if not self.rtf_msg:
+			self.rtf_msg = ' '
+		R = MRIMData( ('lpscnt', 'UL', 'rtf', 'LPS', 'bgcolor', 'UL') )
+		R.data['lpscnt'] = 2
+		R.data['rtf'] = self.rtf_msg
+		R.data['bgcolor'] = 0x00FFFFFF
+		D.data['rtf'] = base64.b64encode(zlib.compress(R.encode()))
 
 		return D.encode()
 
 	def decode(self, data):
 		" Decode online message "
-		pass
+		D = MRIMData((
+			'msg_id', 'UL',
+			'flags', 'UL',
+			'from',  'LPS',
+			'message', 'LPS',
+			'rtf', 'LPSO'
+			))
+		D.decode(data)
+
+		self.flags = D.data['flags']
+		if self.flags & MESSAGE_FLAG_RTF:
+			self.rtf_msg = D.data['rtf']
+		else:
+			self.rtf_msg = None
+
+		self.msg = D.data['message']
+		self.address = D.data['from']
+		self.msg_id = D.data['msg_id']
+
+		self._make_xml()
 
 	def decode_offline(self, rfc822):
 		" Decode MRIM offline message "
@@ -510,6 +545,7 @@ class MRIMMessage(object):
 
 		# Process message:
 		self.address = M['from']
+		self.flags = int(M['X-MRIM-Flags']) | MESSAGE_FLAG_OFFLINE
 		text_part = None
 		rtf_part = None
 		for part in M.walk():
@@ -531,16 +567,41 @@ class MRIMMessage(object):
 			self.rtf_msg = None
 
 		self.uidl = D.data['uidl']
+		self.msg_id = None
 
 		self._make_xml()
 
 	def submit(self):
 		" If this is offline message - then delete it, else sens MSG_RECV to server "
-		pass
+		if self.flags & MESSAGE_FLAG_OFFLINE:
+			log("Delete offline message...")
+			D = MRIMData( ("uidl", "UIDL") )
+			M = mrim_packet(msg = MRIM_CS_DELETE_OFFLINE_MESSAGE)
+			D.data['uidl'] = self.uidl
+			M.data = D.encode()
 
-	def status(self):
-		" Status of sent message "
-		return 0
+			self.mrim.send_msg(M)
+		elif not (self.flags & MESSAGE_FLAG_NORECV):
+			log("Sending message received packet...")
+			D = MRIMData( ('from', 'LPS', 'msgid', 'UL') )
+			D.data['from'] = self.address
+			D.data['msgid'] = self.msg_id
+
+			M = mrim_packet(msg = MRIM_CS_MESSAGE_RECV)
+			M.data = D.encode()
+
+			self.mrim.send_msg(M)
+
+	def authorize(self):
+		" Authorize user: "
+		if not self.is_authorization():
+			raise MRIMError, "It is not authorization request"
+		log("Authorize user: %s..." % self.address)
+		D = MRIMData( ('user', 'LPS' ) )
+		D.data['user'] = self.address
+		M = mrim_packet(msg = MRIM_CS_AUTHORIZE)
+		M.data = D.encode()
+		self.mrim.send_msg(M)
 
 	def is_authorization(self):
 		" Is message authorization request "
@@ -586,12 +647,12 @@ class MailRuAgent(object):
 
 	def __init__(self, no_load_plugins = False):
 		self.sock = None
+		self.address = None # My address
 		self.ping_period = 60
 		self.seq = 0
 		self.plugins = {}
 		self.methods = {}
-		self.actions = { "message_received": [], "contact_list_received": [], "user_info": [], "offline_message": [] }
-		self._msg_cache = []
+		self.actions = {}
 
 		if not no_load_plugins:
 			import mrim_plugins
@@ -609,10 +670,12 @@ class MailRuAgent(object):
 		if self.actions.has_key(name):
 			for h in self.actions[name]:
 				try:
-					h(*args)
+					if not h(*args):
+						return False
 				except:
 					log("Error: Action handler failed")
 					print_exc()
+		return True
 
 	def add_handler(self, name, func, method = "append"):
 		" Add action handler "
@@ -700,6 +763,16 @@ class MailRuAgent(object):
 			raise MRIMError, "Unknown protocol message from server"
 
 		self.last_ping = time.time()
+		self.seq += 1
+
+		self.address = user
+
+	def send_msg(self, msg, seq = None):
+		" Send message to server "
+		if not seq:
+			msg.seq = self.seq
+			self.seq += 1
+		msg.send(self.sock)
 
 	def is_connected(self):
 		return self.sock != None
@@ -764,6 +837,7 @@ class MailRuAgent(object):
 			self.close()
 
 	def send_message(self, msg, addr = None):
+		" Send message. msg is MRIMMessage or string. If string user, then addr must be specified "
 		if not isinstance(msg, MRIMMessage):
 			txt = msg
 			if not addr:
@@ -775,12 +849,21 @@ class MailRuAgent(object):
 		self.seq += 1
 		M.data = msg.encode()
 
-		# Save this message to cache:
-		if not (msg.flags & MESSAGE_FLAG_NORECV):
-			self._msg_cache.append( (M.seq, msg) )
-		msg.send(self.sock)
+		M.send(self.sock)
 
 		return M.seq
+
+	def process_message(self, msg):
+		" Check message flags and call actions "
+		if not self.call_action("raw_message", [msg]):
+			return False
+
+		if msg.flags & MESSAGE_FLAG_AUTHORIZE:
+			return self.call_action("authorization_request", [msg])
+		elif msg.flags & MESSAGE_FLAG_CONTACT:
+			return self.call_action("contact_list_message", [msg])
+		else:
+			return self.call_action("message", [msg])
 
 if __name__ == '__main__':
 	d = MRIMData(('name', 'LPS', 'value', 'UL'))
