@@ -123,9 +123,6 @@ class MessageACK(MRIMPlugin):
 	def message_received(self, msg):
 		M = MRIMMessage()
 		M.mrim = self.mrim
-		f = open('msg.bin', 'w')
-		f.write(msg.data)
-		f.close()
 		M.decode(msg.data)
 
 		self.mrim.process_message(M)
