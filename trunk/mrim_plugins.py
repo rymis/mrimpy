@@ -110,21 +110,27 @@ class OfflineMessage(MRIMPlugin):
 
 	def message_received(self, msg):
 		" process offline message "
+		log("Offline message...")
 		M = MRIMMessage()
+		M.mrim = self.mrim
 		M.decode_offline(msg.data)
 
-		self.mrim.call_action('offline_message', [M])
+		self.mrim.process_message(M)
 
-	def register(self, mrim):
-		self.mrim = mrim
-		mrim.add_method('offline_message_del', self.offline_message_del)
+class MessageACK(MRIMPlugin):
+	MESSAGE = MRIM_CS_MESSAGE_ACK
 
-	def offline_message_del(self, uidl):
-		if not isinstance(uidl, str):
-			uidl = uidl['X-MRIM-UIDL']
+	def message_received(self, msg):
+		M = MRIMMessage()
+		M.mrim = self.mrim
+		f = open('msg.bin', 'w')
+		f.write(msg.data)
+		f.close()
+		M.decode(msg.data)
 
-		log("Removing message with UIDL[%s]" % uidl)
-		# TODO remove message
+		self.mrim.process_message(M)
+	
+
 
 class RTFFormat(MRIMPlugin):
 	def register(self, mrim):
@@ -141,5 +147,14 @@ class RTFFormat(MRIMPlugin):
 	def rtf2text(self, rtf):
 		return rtf_decode(rtf)
 
-PLUGINS_ALL = [ UserInfo, ContactList2, OfflineMessage, RTFFormat ]
+class MessageStatus(MRIMPlugin):
+	MESSAGE = MRIM_CS_MESSAGE_STATUS
+
+	def message_received(self, msg):
+		D = MRIMData( ('status', 'UL' ) )
+		D.decode(msg.data)
+
+		self.mrim.call_action( "message_status", [D.data['status']])
+
+PLUGINS_ALL = [ UserInfo, ContactList2, OfflineMessage, RTFFormat, MessageStatus, MessageACK ]
 

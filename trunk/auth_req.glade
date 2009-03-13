@@ -36,6 +36,7 @@
                                 <property name="label">gtk-yes</property>
                                 <property name="use_stock">True</property>
                                 <property name="visible">True</property>
+                                <signal handler="ok_clicked" name="clicked"/>
                             </widget>
                             <packing>
                                 <property name="position">1</property>

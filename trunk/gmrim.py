@@ -134,16 +134,21 @@ def load_glade(name):
 		name = name + '.glade'
 	return GladeWrapper(gtk.glade.XML(name))
 
+def ErrorMessage(parent, msg, traceback = False):
+	" Show error message and optionally python traceback "
+	dlg = gtk.MessageDialog(parent, gtk.DIALOG_DESTROY_WITH_PARENT | gtk.DIALOG_MODAL, gtk.MESSAGE_ERROR, gtk.BUTTONS_CLOSE, msg)
+	dlg.run()
+	dlg.hide()
+
 class ChatBody(gtk.VBox):
 	# TODO: from config
 	in_color = 'brown'
 	out_color = 'blue'
 
-	def __init__(self, address, nickname, mynick):
+	def __init__(self, address, nickname):
 		gtk.VBox.__init__(self)
 		self.address = address
 		self.nickname = nickname
-		self.mynick = mynick
 		self.chat = gtk.TextView()
 		self.msg = gtk.TextView()
 		self.pack_start(self.chat, True, True, 4)
@@ -181,7 +186,7 @@ class message_window(object):
 	def __init__(self, parent, mrim):
 		self.mrim = mrim
 		self.glade = load_glade('message_window')
-		# self.glade.window.set_parent(parent)
+		self.glade.window.set_transient_for(parent)
 		self.glade.window.set_destroy_with_parent(True)
 
 		self.glade.window.set_size_request(640, 480) # TODO: size from config as in main window
@@ -204,7 +209,7 @@ class message_window(object):
 			pass
 
 		lbl = self._create_chat_label(address, nickname)
-		body = ChatBody(address, nickname, my_nick)
+		body = ChatBody(address, nickname)
 		body.send_message = self.send_message
 		body.mrim = self.mrim
 
@@ -241,10 +246,10 @@ class message_window(object):
 
 		chat = self.glade.notebook.get_nth_page(self.glade.notebook.get_current_page())
 		if out:
-			a_from = chat.mynick
+			a_from = self.mrim.address
 			a_to = chat.address
 		else:
-			a_to = chat.mynick
+			a_to = self.mrim.address
 			a_from = chat.address
 
 		buf = chat.chat.get_buffer()
@@ -298,18 +303,22 @@ class authorization_window(object):
 		self.glade = load_glade('auth_req')
 
 		# TODO: message as XML
-		self.glade.wnd.set_title("Contact %s request authorization..." % msg.address)
+		self.glade.dlg.set_title("Contact %s request authorization..." % msg.address)
+		self.glade.dlg.set_transient_for(parent)
+		self.glade.dlg.set_destroy_with_parent(True)
 		buf = self.glade.textview.get_buffer()
-		buf.set_text(msg.msg)
+		buf.set_text(unicode(msg.msg, mrim.MRIM_ENCODING, 'replace'))
 
 		self.glade.autoconnect(self)
 
+		self.glade.dlg.show_all()
+
 	def cancel_clicked(self, w):
-		self.glade.wnd.hide()
+		self.glade.dlg.hide()
 
 	def ok_clicked(self, w):
 		self.msg.authorize()
-		self.glade.wnd.hide()
+		self.glade.dlg.hide()
 
 class authorization_request(object):
 	def __init__(self, parent, mrim):
@@ -318,15 +327,28 @@ class authorization_request(object):
 		self.glade = load_glade('auth_dlg')
 		self.glade.autoconnect(self)
 
+		self.glade.dialog.run()
+
 	def cancel_clicked(self, w):
 		print "Cancel"
 
-		self.glade.dlg.hide()
+		self.glade.dialog.hide()
 
 	def ok_clicked(self, w):
-		print "Ok"
+		addr = self.glade.entry.get_text().decode('utf-8')
+		buf = self.glade.textview.get_buffer()
+		msg = buf.get_text(buf.get_start_iter(), buf.get_end_iter()).decode('utf-8')
 
-		self.glade.dlg.hide()
+		if len(msg) == 0:
+			msg = "Add me to your rouster, please"
+		if '@' not in addr:
+			ErrorMessage(self.glade.dialog, "Invalid address")
+			return
+
+		M = mrim.MRIMMessage(msg = msg, flags = mrim.MESSAGE_FLAG_AUTHORIZE, mrim = self.mrim, address = addr)
+		seq = self.mrim.send_message(M)
+
+		self.glade.dialog.hide()
 
 
 MRIM_STATUSES = [
@@ -341,7 +363,9 @@ class main_window(object):
 		self.mrim = mrim.MailRuAgent()
 		self.mrim.add_handler('user_info', self.mrim_user_info)
 		self.mrim.add_handler('contact_list', self.contact_list_received)
-		self.mrim.add_handler('offline_message', self.offline_message)
+		self.mrim.add_handler('message', self.message_received)
+		self.mrim.add_handler('message_status', self.message_status)
+		self.mrim.add_handler('authorization_request', self.authorization_received)
 
 		self.name = None
 		self.password = None
@@ -471,7 +495,7 @@ class main_window(object):
 				self.mrim.change_status(status)
 
 	def add_contact_clicked(self, w):
-		print "Add new contact..."
+		dlg = authorization_request(self.glade.window1, self.mrim)
 
 	def connect(self, status = mrim.STATUS_ONLINE):
 		" Connect. If need answere for name and password "
@@ -539,10 +563,33 @@ class main_window(object):
 
 		self._clist = (groups, contacts)
 
-	def offline_message(self, msg):
+	def message_received(self, msg):
+		# TODO: show alert instead message "
 		self.msg_wnd.show()
 		self.msg_wnd.add_message(msg, direction = 'S2C')
 		msg.submit()
+
+	def authorization_received(self, msg):
+		print "Authorization received..."
+		w = authorization_window(self.glade.window1, msg)
+
+	def message_status(self, status):
+		if status == mrim.MESSAGE_DELIVERED:
+			return
+
+		s = 'Generic error'
+		if status == mrim.MESSAGE_REJECTED_INTERR:
+			s = 'Message rejected. Internal server error'
+		elif status == mrim.MESSAGE_REJECTED_NOUSER:
+			s = 'Message rejected. No specified user found.'
+		elif status == mrim.MESSAGE_REJECTED_LIMIT_EXCEEDED:
+			s = 'Message rejected. You message limit exceeded'
+		elif status == mrim.MESSAGE_REJECTED_TOO_LARGE:
+			s = 'Message rejected. Message too large'
+		elif status == mrim.MESSAGE_REJECTED_DENY_OFFMSG:
+			s = 'Message rejected. User denied offline messages'
+
+		ErrorMessage(self.glade.window1, s)
 
 
 if __name__ == '__main__':
