@@ -297,7 +297,7 @@ class message_window(object):
 			self.add_message(txt, address = addr, direction = 'C2S')
 
 class authorization_window(object):
-	def __init__(self, parent, msg):
+	def __init__(self, parent, msg, cl):
 		self.msg = msg
 		self.parent = parent
 		self.glade = load_glade('auth_req')
@@ -321,10 +321,24 @@ class authorization_window(object):
 		self.glade.dlg.hide()
 
 class authorization_request(object):
-	def __init__(self, parent, mrim):
+	def __init__(self, parent, mrim, cl):
 		self.mrim = mrim
 		self.parent = parent
+		self.contact_list = cl
 		self.glade = load_glade('auth_dlg')
+
+		# Add groups:
+		model = gtk.ListStore(gobject.TYPE_STRING)
+		self.glade.group.set_model(model)
+		renderer = gtk.CellRendererText()
+		self.glade.group.pack_start(renderer, True)
+		self.glade.group.add_attribute(renderer, 'text', 0)
+		self.glade.group.set_active(0)
+
+		for g in self.contact_list.groups:
+			iter = model.append()
+			model.set(iter, 0, g['name'])
+
 		self.glade.autoconnect(self)
 
 		self.glade.dialog.run()
@@ -345,6 +359,9 @@ class authorization_request(object):
 			ErrorMessage(self.glade.dialog, "Invalid address")
 			return
 
+		grp = self.glade.group.get_active()
+		self.contact_list.add_contact(addr, grp)
+
 		M = mrim.MRIMMessage(msg = msg, flags = mrim.MESSAGE_FLAG_AUTHORIZE, mrim = self.mrim, address = addr)
 		seq = self.mrim.send_message(M)
 
@@ -361,8 +378,9 @@ class main_window(object):
 		self.config = Config('gmrim')
 		self.glade = load_glade("main_window")
 		self.mrim = mrim.MailRuAgent()
+		self.contact_list = mrim.ContactList(self.mrim)
 		self.mrim.add_handler('user_info', self.mrim_user_info)
-		self.mrim.add_handler('contact_list', self.contact_list_received)
+		self.mrim.add_handler('contact_list_updated', self.contact_list_received)
 		self.mrim.add_handler('message', self.message_received)
 		self.mrim.add_handler('message_status', self.message_status)
 		self.mrim.add_handler('authorization_request', self.authorization_received)
@@ -375,14 +393,6 @@ class main_window(object):
 
 		self.__init_treeview(self.glade.contacts)
 		self.__init_status(self.glade.status)
-
-		self._clist = self.config['contact_list']
-		if not self._clist:
-			self._clist = ([], [])
-		for g in self._clist[1]:
-			for c in g:
-				c['status'] = mrim.STATUS_OFFLINE
-		self.contact_list_received(*self._clist)
 
 		self.glade.autoconnect(self)
 
@@ -409,7 +419,6 @@ class main_window(object):
 
 	def wnd_destroy(self, w):
 		# w = self.glade.window1
-		self.config['contact_list'] = self._clist
 		self.config['name'] = self.name
 		self.config['save_password'] = self.save_password
 		if self.save_password:
@@ -495,7 +504,7 @@ class main_window(object):
 				self.mrim.change_status(status)
 
 	def add_contact_clicked(self, w):
-		dlg = authorization_request(self.glade.window1, self.mrim)
+		dlg = authorization_request(self.glade.window1, self.mrim, self.contact_list)
 
 	def connect(self, status = mrim.STATUS_ONLINE):
 		" Connect. If need answere for name and password "
@@ -553,15 +562,14 @@ class main_window(object):
 				break
 			M.remove(iter)
 
-		for g, cl in zip(groups, contacts):
+		for g in groups:
 			giter = M.append(None)
+			cl = [c for c in self.contact_list.list_contacts(groups.index(g))]
 			M.set(giter, 1, "%s (%d)" % (g['name'], len(cl)))
 
 			for c in cl:
 				iter = M.append(giter)
 				M.set(iter, 0, "%d" % c['status'], 1, c['address'])
-
-		self._clist = (groups, contacts)
 
 	def message_received(self, msg):
 		# TODO: show alert instead message "
