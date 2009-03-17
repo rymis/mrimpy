@@ -441,12 +441,14 @@ class MRIMMessage(object):
 		D.data['flags'] = self.flags
 		D.data['to'] = self.address
 		D.data['txt'] = self.msg
+		if not self.rtf_msg:
+			self.rtf_msg = ' ' # Mail.Ru don't do it, but we will
 
-		R = MRIMData( ('lpscnt', 'UL', 'rtf', 'LPS', 'bgcolor', 'UL') )
-		R.data['lpscnt'] = 2
-		R.data['rtf'] = self.rtf_msg
-		R.data['bgcolor'] = 0x00FFFFFF
 		if self.rtf_msg:
+			R = MRIMData( ('lpscnt', 'UL', 'rtf', 'LPS', 'bgcolor', 'UL') )
+			R.data['lpscnt'] = 2
+			R.data['rtf'] = self.rtf_msg
+			R.data['bgcolor'] = 0x00FFFFFF
 			D.data['rtf'] = base64.b64encode(zlib.compress(R.encode()))
 		else:
 			D.data['rtf'] = None
@@ -805,6 +807,11 @@ class MailRuAgent(object):
 		self.seq += 1
 
 		self.address = user
+		self.__password = password
+
+	def reconnect(self):
+		" reconnect after connection last "
+		self.connect(self.address, self.__password)
 
 	def send_msg(self, msg, seq = None):
 		" Send message to server "

@@ -7,6 +7,7 @@
 
 import gtk
 import gtk.glade
+import gtk.gdk
 import gobject
 import pango
 import mrim
@@ -43,6 +44,7 @@ elif os.environ.has_key('WINDIR'):
 	HOMEPATH = os.environ['WINDIR']
 else:
 	HOMEPATH = RUNPATH
+GLOBAL_THEME = 'stellar'
 
 class GladeWrapper(object):
 	def __init__(self, glade):
@@ -53,6 +55,20 @@ class GladeWrapper(object):
 
 	def autoconnect(self, *args):
 		self._glade.signal_autoconnect(*args)
+
+def get_icon_name(name):
+	" Get icon name with specified theme "
+	for ext in [ '.gif', '.png', '.jpg', "" ]:
+		fn = os.path.join(DATAPATH, 'icons', GLOBAL_THEME, "%s%s" % (name, ext))
+		if os.path.isfile(fn):
+			return fn
+	return None
+
+def load_icon(name):
+	nm = get_icon_name(name)
+	if nm:
+		return gtk.gdk.pixbuf_new_from_file(nm)
+	return None
 
 class mem_storage(dict):
 	def __init__(self):
@@ -259,6 +275,8 @@ class message_window(object):
 		buf.insert_with_tags_by_name(iter, "%s: " % a_from, color, 'italic')
 
 		# Insert message:
+		if not msg.endswith('\n'):
+			msg = msg + '\n'
 		buf.insert(iter, msg)
 
 	def _insert_rtf(self, buf, iter, rtf_mrim):
@@ -369,8 +387,10 @@ class authorization_request(object):
 
 
 MRIM_STATUSES = [
-		( "Offline", mrim.STATUS_OFFLINE ),
-		( "Online", mrim.STATUS_ONLINE )
+		( "Offline", mrim.STATUS_OFFLINE, 'offline' ),
+		( "Online", mrim.STATUS_ONLINE, 'online' ),
+		( "Away", mrim.STATUS_AWAY, 'away' ),
+		( "Undeterminated", mrim.STATUS_UNDETERMINATED, 'offline' )
 ]
 
 class main_window(object):
@@ -444,11 +464,11 @@ class main_window(object):
 
 	def __init_treeview(self, tv):
 		# TODO: status as icon, avatars...
-		model = gtk.TreeStore(gobject.TYPE_STRING, gobject.TYPE_STRING)
+		model = gtk.TreeStore(gobject.TYPE_OBJECT, gobject.TYPE_STRING)
 		tv.set_model(model)
 
-		renderer = gtk.CellRendererText()
-		column = gtk.TreeViewColumn("status", renderer, text = 0)
+		renderer = gtk.CellRendererPixbuf()
+		column = gtk.TreeViewColumn("status", renderer, pixbuf = 0)
 		tv.append_column(column)
 
 		renderer = gtk.CellRendererText()
@@ -457,18 +477,29 @@ class main_window(object):
 
 	def __init_status(self, st):
 		# TODO: icon
-		model = gtk.ListStore(gobject.TYPE_STRING, gobject.TYPE_INT)
+		model = gtk.ListStore(gobject.TYPE_STRING, gobject.TYPE_INT, gobject.TYPE_OBJECT)
 		st.set_model(model)
+
+		renderer = gtk.CellRendererPixbuf()
+		st.pack_start(renderer, True)
+		st.add_attribute(renderer, 'pixbuf', 2)
+
 		renderer = gtk.CellRendererText()
 		st.pack_start(renderer, True)
 		st.add_attribute(renderer, 'text', 0)
 
 		for i in MRIM_STATUSES:
 			iter = model.append(None)
-			model.set(iter, 0, i[0], 1, i[1])
+			model.set(iter, 0, i[0], 1, i[1], 2, load_icon(i[2]))
 
 		iter = model.get_iter_first()
 		st.set_active_iter(iter)
+
+	def _status_to_icon(self, status):
+		for s in MRIM_STATUSES:
+			if s[1] == (status & 0xFFFF):
+				return load_icon(s[2])
+		return None
 
 	def add_contact(self, id):
 		" add contact to list: "
@@ -569,7 +600,7 @@ class main_window(object):
 
 			for c in cl:
 				iter = M.append(giter)
-				M.set(iter, 0, "%d" % c['status'], 1, c['address'])
+				M.set(iter, 0, self._status_to_icon(c['status']), 1, c['address'])
 
 	def message_received(self, msg):
 		# TODO: show alert instead message "
