@@ -79,10 +79,8 @@ class ContactList2(MRIMPlugin):
 				raise MRIMError, "Invalid group format"
 
 			groups.append({'flags': g[0], 'name': g[1].decode(MRIM_ENCODING)})
-		cl = []
-		for i in range(gcnt):
-			cl.append([])
 
+		cl = []
 		while len(d) > 0:
 			c = []
 			for f in cfmt:
@@ -100,8 +98,7 @@ class ContactList2(MRIMPlugin):
 			contact['server_flags'] = c[4]
 			contact['status'] = c[5]
 
-			if len(cl) > contact['group']: 
-				cl[contact['group']].append(contact)
+			cl.append(contact)
 
 		self.mrim.call_action('contact_list', (groups, cl))
 
@@ -153,5 +150,24 @@ class MessageStatus(MRIMPlugin):
 
 		self.mrim.call_action( "message_status", [D.data['status']])
 
-PLUGINS_ALL = [ UserInfo, ContactList2, OfflineMessage, RTFFormat, MessageStatus, MessageACK ]
+class ConnectionParams(MRIMPlugin):
+	MESSAGE = MRIM_CS_CONNECTION_PARAMS
+
+	def message_received(self, msg):
+		D = MRIMData( ('ping_period', 'UL') )
+		D.decode(msg.data)
+
+		self.mrim.ping_period = D.data['ping_period']
+
+class UserStatus(MRIMPlugin):
+	MESSAGE = MRIM_CS_USER_STATUS
+
+	def message_received(self, msg):
+		D = MRIMData( ('status', 'UL', 'user', 'LPS') )
+		D.decode(msg.data)
+
+		self.mrim.call_action( 'user_status', (D.data['user'], D.data['status']))
+
+
+PLUGINS_ALL = [ UserInfo, ContactList2, OfflineMessage, RTFFormat, MessageStatus, MessageACK, ConnectionParams, UserStatus ]
 

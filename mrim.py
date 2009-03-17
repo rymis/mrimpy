@@ -62,7 +62,7 @@ For example:
 		UL - unsigned long
 		UIDL - unique message ID (8 bytes)
 		LPS - string encoded as length:data
-		LPSO - optional string (decode only)
+		LPSO - optional string
 	"""
 	def __init__(self, fmt = None):
 		self.fmt = []
@@ -128,6 +128,11 @@ For example:
 			if len(val) != 8:
 				raise MRIMError, "Invalid parameter passed to UIDL"
 			return val
+		elif type == 'LPSO':
+			if not val:
+				return ""
+			else:
+				return self.encode_type('LPS', val)
 		else:
 			raise MRIMError, "Unknon type: %s" % type
 
@@ -169,56 +174,7 @@ MESSAGE_FLAG_MULTICAST =		0x00001000
 MAX_MULTICAST_RECIPIENTS = 50
 MESSAGE_USERFLAGS_MASK =	0x000036A8	# Flags that user is allowed to set himself
 
-mrim_types = [
-	( MRIM_CS_HELLO,
-		(
-		)
-	),
-	( MRIM_CS_HELLO_ACK,
-		(
-			'ping_period', 'UL'
-		)
-	),
-	( MRIM_LOGIN2,
-		(
-			'login', 'LPS',
-			'password', 'LPS',
-			'status', 'UL',
-			'description', 'LPS'
-		)
-	),
-	( MRIM_LOGIN_ACK,
-		(
-		)
-	),
-	( MRIM_LOGIN_REJ,
-		(
-			'reason', 'LPS'
-		)
-	),
-	( MRIM_CS_PING,
-		(
-		)
-	),
-	( MRIM_CS_MESSAGE,
-		(
-			'flags', 'UL',
-			'to', 'LPS',
-			'message', 'LPS',
-			'rtf', 'LPS'
-		)
-	),
-]
-
-def get_mrim_data(type):
-	" create MRIMData object of type "
-	for t in mrim_types:
-		if t[0] == type:
-			return MRIMData(t[1])
-
-	return None
-
-class mrim_packet(object):
+class Packet(object):
 	" Low-level MRIM message "
 
 	def __init__(self, magic = CS_MAGIC, proto = PROTO_VERSION, msg = None, fromaddr = 0, fromport = 0, data = None):
@@ -294,15 +250,6 @@ class mrim_packet(object):
 		self.fromaddr = socket.ntohl(fromaddr)
 		self.fromport = socket.ntohl(fromport)
 		self.data = None
-
-	def decode_data(self):
-		" Get MRIMData from decoded packet "
-		for t in mrim_types:
-			if t[0] == self.msg:
-				d = MRIMData(t[1])
-				d.decode(self.data)
-				return d
-		return None # Unknown message type
 
 	def __repr__(self):
 		return "MRIM Message { type: %x, seq: %d }" % (self.msg, self.seq)
@@ -475,15 +422,6 @@ GET_CONTACTS_INTERR =		0x0002
 
 ###############################################################################
 
-class MRIMContact(object):
-	def __init__(self):
-		self.address = u""
-		self.nick = u""
-		self.group = -1
-		self.group_name = u""
-		self.server_flags = 0
-		self.status = STATUS_OFFLINE
-
 class MRIMMessage(object):
 	def __init__(self, msg = u"", xml_msg = None, rtf_msg = None, flags = 0, mrim = None, address = None):
 		" Create new message "
@@ -499,18 +437,19 @@ class MRIMMessage(object):
 	def encode(self):
 		" Encode message for sending "
 		# TODO: RTF part
-		D = MRIMData( ('flags', 'UL', 'to', 'LPS', 'txt', 'LPS', 'rtf', 'LPS') )
+		D = MRIMData( ('flags', 'UL', 'to', 'LPS', 'txt', 'LPS', 'rtf', 'LPSO') )
 		D.data['flags'] = self.flags
 		D.data['to'] = self.address
 		D.data['txt'] = self.msg
 
-		if not self.rtf_msg:
-			self.rtf_msg = ' '
 		R = MRIMData( ('lpscnt', 'UL', 'rtf', 'LPS', 'bgcolor', 'UL') )
 		R.data['lpscnt'] = 2
 		R.data['rtf'] = self.rtf_msg
 		R.data['bgcolor'] = 0x00FFFFFF
-		D.data['rtf'] = base64.b64encode(zlib.compress(R.encode()))
+		if self.rtf_msg:
+			D.data['rtf'] = base64.b64encode(zlib.compress(R.encode()))
+		else:
+			D.data['rtf'] = None
 
 		return D.encode()
 
@@ -576,7 +515,7 @@ class MRIMMessage(object):
 		if self.flags & MESSAGE_FLAG_OFFLINE:
 			log("Delete offline message...")
 			D = MRIMData( ("uidl", "UIDL") )
-			M = mrim_packet(msg = MRIM_CS_DELETE_OFFLINE_MESSAGE)
+			M = Packet(msg = MRIM_CS_DELETE_OFFLINE_MESSAGE)
 			D.data['uidl'] = self.uidl
 			M.data = D.encode()
 
@@ -587,7 +526,7 @@ class MRIMMessage(object):
 			D.data['from'] = self.address
 			D.data['msgid'] = self.msg_id
 
-			M = mrim_packet(msg = MRIM_CS_MESSAGE_RECV)
+			M = Packet(msg = MRIM_CS_MESSAGE_RECV)
 			M.data = D.encode()
 
 			self.mrim.send_msg(M)
@@ -599,7 +538,7 @@ class MRIMMessage(object):
 		log("Authorize user: %s..." % self.address)
 		D = MRIMData( ('user', 'LPS' ) )
 		D.data['user'] = self.address
-		M = mrim_packet(msg = MRIM_CS_AUTHORIZE)
+		M = Packet(msg = MRIM_CS_AUTHORIZE)
 		M.data = D.encode()
 		self.mrim.send_msg(M)
 
@@ -641,6 +580,100 @@ class MRIMPlugin(object):
 			return mrim_type == self.MESSAGE
 		return False
 
+class ContactList(object):
+	" Contact list object represent MRIMContact list. "
+	def __init__(self, mrim):
+		self.mrim = mrim
+		self.mrim.add_handler('contact_list', self._contact_list_rec)
+		self.mrim.add_handler('user_status', self._user_status)
+		self.groups = []
+		self.contacts = []
+		self._operations = [] # Operation is [ seq, type, args, descr ]
+
+	def _contact_list_rec(self, groups, contacts):
+		self.groups = groups
+		self.contacts = contacts
+		self._update()
+
+	def _operation_result(self, seq, res, contact_id = None):
+		oper = None
+		for o in self._operations:
+			if o[0] == seq:
+				oper = o
+				break
+
+		if not oper:
+			return
+
+		if res == CONTACT_OPER_USER_EXIST:
+			# It is not error
+			return
+
+		if res == CONTACT_OPER_SUCCESS:
+			self._process_operation(oper)
+		else:
+			raise MRIMError, "Operation failed: %s" % oper[3]
+
+	def _process_operation(self, oper):
+		if oper[1] == 'AC': # Add contact:
+			gid, name, nick = oper[2]
+			self.contacts.append( { 'group': gid, 'address': name, 'nick': nick, 'status': 0, 'flags': 0 } )
+		elif oper[1] == 'RC': # remove contact
+			name = oper[2]
+			for c in self.contacts:
+				if c['address'] == name:
+					del self.contacts[self.contacts.index(c)]
+					break
+		else:
+			# Unknown operation
+			log("Strange: unknown operation: %s" % oper[1])
+			return
+
+		self.mrim.call_action('contact_list_updated', (self.groups, self.contacts))
+
+	def _user_status(self, email, status):
+		for c in self.contacts:
+			if c['address'] == email:
+				c['status'] = status
+
+		self._update()
+
+	def _update(self):
+		self.mrim.call_action('contact_list_updated', (self.groups, self.contacts))
+
+	def list_contacts(self, group = None):
+		for c in self.contacts:
+			if not group or c['group'] == group:
+				yield c
+
+	def add_group(self, group_name):
+		" Add new group to contact list "
+		pass
+
+	def add_contact(self, user, group, flags = 0):
+		" Add new contact to contact list "
+		msg = Packet(msg = MRIM_CS_ADD_CONTACT)
+		D = MRIMData( ('flags', 'UL', 'group', 'UL', 'name', 'LPS', 'unused', 'LPS') )
+		D.data['flags'] = flags
+		D.data['group'] = group
+		D.data['name'] = user
+		D.data['unused'] = ""
+		msg.data = D.encode()
+
+		seq = self.mrim.send_msg(msg)
+		self._operations.append([seq, 'AC', (group, user, user), 'Add user %s' % user])
+
+	def modify_contact(self, user, group = None, contact = None, name = None):
+		" Modify contact "
+		pass
+
+	def remove_contact(self, user):
+		" Remove contact from contact list "
+		pass
+
+	def remove_group(self, user):
+		" Remove group from contact list "
+		pass
 
 class MailRuAgent(object):
 	" main class for protocol "
@@ -718,48 +751,54 @@ class MailRuAgent(object):
 
 		# Send hello:
 		log('Sending hello...')
-		msg = mrim_packet(msg = MRIM_CS_HELLO)
+		msg = Packet(msg = MRIM_CS_HELLO)
 		msg.seq = self.seq
 		msg.send(self.sock)
 
 		# And receive ack:
 		log('Receiving ACK...')
-		msg = mrim_packet()
+		msg = Packet()
 		msg.recv(self.sock)
 
 		if msg.msg != MRIM_CS_HELLO_ACK:
 			log("Error: not valid message from server")
 			raise MRIMError, 'Invalid server answere'
-		self.ping_period = msg.decode_data().data['ping_period']
+		D = MRIMData( ('ping_period', 'UL') )
+		D.decode(msg.data)
+		self.ping_period = D.data['ping_period']
 		log('PING period is set to %d' % self.ping_period)
 
 		self.seq += 1
 
 		# Send login and password:
-		l = get_mrim_data(MRIM_LOGIN2)
+		l = MRIMData( ('login', 'LPS', 'password', 'LPS', 'status', 'UL', 'description', 'LPS') )
 		l.data['login'] = user
 		l.data['password'] = password
 		l.data['status'] = status
 		l.data['description'] = 'MRIM Python library v%s. <rymis@mail.ru>' % LIB_VERSION
 
 		log('Sending login...')
-		msg = mrim_packet(msg = MRIM_LOGIN2)
+		msg = Packet(msg = MRIM_LOGIN2)
 		msg.seq = self.seq
 		msg.data = l.encode()
 		msg.send(self.sock)
 
 		# And receive answere:
 		log('Receiving answere...')
-		msg = mrim_packet()
+		msg = Packet()
 		msg.recv(self.sock)
 
 		if msg.msg == MRIM_LOGIN_ACK:
 			# Ok.
 			log("Login OK...")
-			pass
 		elif msg.msg == MRIM_LOGIN_REJ:
-			raise MRIMError, "Login rejected: %s" % msg.decode_data().data['reason']
+			D = MRIMData( ('reason', 'LPS') )
+			self.sock.close()
+			self.sock = None
+			raise MRIMError, "Login rejected: %s" % D.data['reason']
 		else:
+			self.sock.close()
+			self.sock = None
 			raise MRIMError, "Unknown protocol message from server"
 
 		self.last_ping = time.time()
@@ -773,6 +812,7 @@ class MailRuAgent(object):
 			msg.seq = self.seq
 			self.seq += 1
 		msg.send(self.sock)
+		return msg.seq
 
 	def is_connected(self):
 		return self.sock != None
@@ -800,7 +840,7 @@ class MailRuAgent(object):
 		if r == []:
 			return None
 
-		msg = mrim_packet()
+		msg = Packet()
 		msg.recv(self.sock)
 
 		log("New message from server: %s"% repr(msg))
@@ -814,7 +854,7 @@ class MailRuAgent(object):
 
 	def _ping(self):
 		log("PING")
-		msg = mrim_packet(msg = MRIM_CS_PING)
+		msg = Packet(msg = MRIM_CS_PING)
 		seq = self.seq = self.seq + 1
 		seq -= 1
 		msg.seq = seq
@@ -823,7 +863,7 @@ class MailRuAgent(object):
 	def change_status(self, status):
 		" Change user status "
 		log("Change status to %d" % status)
-		msg = mrim_packet(msg = MRIM_CS_CHANGE_STATUS)
+		msg = Packet(msg = MRIM_CS_CHANGE_STATUS)
 		seq = self.seq = self.seq + 1
 		seq -= 1
 		msg.seq = seq
@@ -844,7 +884,7 @@ class MailRuAgent(object):
 				raise MRIMError, "Not enought params in send_message "
 			msg = MRIMMessage(msg = txt, flags = MESSAGE_FLAG_NORECV, address = addr)
 
-		M = mrim_packet(msg = MRIM_CS_MESSAGE)
+		M = Packet(msg = MRIM_CS_MESSAGE)
 		M.seq = self.seq
 		self.seq += 1
 		M.data = msg.encode()

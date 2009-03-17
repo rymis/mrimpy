@@ -30,10 +30,19 @@
                                 </child>
                                 <child>
                                     <widget class="GtkEntry" id="entry">
+                                        <property name="is_focus">True</property>
                                         <property name="visible">True</property>
                                     </widget>
                                     <packing>
                                         <property name="position">1</property>
+                                    </packing>
+                                </child>
+                                <child>
+                                    <widget class="GtkComboBox" id="group">
+                                        <property name="visible">True</property>
+                                    </widget>
+                                    <packing>
+                                        <property name="position">2</property>
                                     </packing>
                                 </child>
                             </widget>
