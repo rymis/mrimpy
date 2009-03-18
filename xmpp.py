@@ -1,59 +1,64 @@
 #!/usr/bin/env python
 
-"""
-	Simple XML Stream implementation in Python.
-"""
+import xmlstream
+import socket
 
 class XMPPError(Exception):
 	pass
 
-class IOStream(object):
-	" IO stream base object. Provide buffered read and write of characters, lines, ... "
-	BUFSIZ = 8192
+class XMPPClient(object):
+	" Jaber client representation "
+	def __init__(self, sock):
+		self.sock = sock
 
-	def __init__(self):
-		" Initialize stream "
-		self._write_buf = ""
-		self._read_buf = ""
-		self._read_pos = 0
+	def close(self):
+		" Send </stream> and close connection "
+		self.sock.close()
 
-	def _read(self, len):
-		" Each stream must implement this method, if we can read from it "
-		raise XMPPError, "Stream has no read capabilities"
+	def fileno(self):
+		return self.sock.fileno()
 
-	def _write(self, buf):
-		" Each stream must implement this method if we can write to stream "
-		raise XMPPError, "Stream has no write capabilities"
+class XMPPPlugin(object):
+	" Handler of stanzas "
+	STANZAS = []
 
-	def _can_read(self):
-		return False
+	def register(self, server):
+		" Register this plugin "
+		self.server = server
 
-	def _can_write(self):
-		return False
+	def unregister(self):
+		" Unregister plugin "
+		pass
 
-	def getc(self):
-		" read one character from stream "
-		if self._read_pos < len(self._read_buf):
-			self._read_pos += 1
-			return self._read_buf[self._read_pos]
-		self._read_buf = self._read(self.BUFSIZ)
-		if len(self._read_buf) == 0:
-			self._read_pos = 0
-			return None
-		self._read_pos = 1
-		return self._read_buf[0]
+	def process_stanza(self, xml, client):
+		" Process stanza "
+		pass
 
-	def puts(self, s):
-		" write string to stream: "
-		self._write_buf += s
-		if len(self._write_buf) > self.BUFSIZ:
-			l = self._write(self._write_buf)
-			if l < 0:
-				raise XMPPError, "Write error"
-			self._write_buf = self._write_buf[l:]
+	def get_features(self):
+		return None
 
-class XMLStream(object):
-	" XML stream object. Read and write XML streams "
+class XMPPServer(object):
+	def __init__(self, addr = ('127.0.0.1', 5221), no_register_defaults = False):
+		self.sock = socket.socket(socket.SOCK_STREAM)
+		self.sock.bind(addr)
+		self.clients = []
+		self.plugins = []
 
-	def __init__(self, read, write = None):
-		" Init new instance of XML stream: "
+		if not no_register_defaults:
+			for P in xmpp_plugins.PLUGINS:
+				p = P()
+				self.register_plugin(p)
+
+	def start(self):
+		" Start server "
+		pass
+
+	def stop(self):
+		" Stop server "
+		pass
+
+	def register_plugin(self, p):
+		" Register new plugin "
+		self.plugins.append(p)
+		p.register(self)
+
