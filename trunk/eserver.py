@@ -6,6 +6,7 @@
 
 import select
 import socket
+from traceback import print_exc
 
 class Protocol(object):
 	" Application protocol implementation "
@@ -92,6 +93,7 @@ class EventServer(object):
 							cl.processData(buf)
 						except:
 							print "Client raised error: ", cl
+							print_exc()
 							cl.sock.close()
 							self.removeClient(cl)
 
@@ -113,7 +115,7 @@ class EventServer(object):
 			cl = self.handle_class(s[0], self)
 			self.clients.append(cl)
 		except:
-			pass
+			print_exc()
 
 	def _client_by_fileno(self, fno):
 		for c in self.clients:
