@@ -9,6 +9,7 @@ try:
 	from cStringIO import StringIO
 except:
 	from StringIO import StringIO
+import xml.sax, xml.sax.handler
 
 _name = '[a-zA-Z_][^<>&= \\s]*'
 
@@ -19,11 +20,121 @@ _fulltag_one = re.compile('\\s*<' + _name + '[^<>&]*/>', flags = re.M | re.S)
 
 _comment = re.compile('\\s*<!--.*-->\\s*', re.M | re.S)
 
+def _utfstring(s):
+	if isinstance(s, unicode):
+		s.encode('utf-8', 'replace')
+	return s
+
+class XMLError(Exception):
+	pass
+
 class XMLNode(object):
-	def __init__(self):
-		self.attrs = {}
+	"""
+	XMLNode is simple XML manipulation API. Usage:
+xml = parseXML('<a h="b"><b a="a"></b></a>')
+xml['b'].nodes.append(XMLNode(name = "c", attrs = { "x": "y" }))
+xml['b']['c'].nodes.append('string')
+print xml.toString()
+	"""
+	def __init__(self, name = None, attrs = {}, orig = None):
+		" Create new XMLNode instance "
+		self.name = name
+		self.attrs = attrs
 		self.nodes = []
-		self.characters = ""
+		self.orig = orig
+
+	def __getitem__(self, name):
+		" Get subnode: "
+		for node in self.nodes:
+			if isinstance(node, XMLNode) and node.name == name:
+				return node
+		return None
+
+	def _quoteattr(self, s):
+		return s.replace('"', '&quot;')
+
+	def toString(self, align = 4, pack = False, _offset = 0, _S = None):
+		" Returns string representation of XML. No <?xml...> provided and encoding is always utf-8 "
+
+		if not _S:
+			S = StringIO()
+		else:
+			S = _S
+
+		margin = ' ' * (_offset * align)
+		if not pack:
+			S.write(margin)
+		S.write('<%s' % _utfstring(self.name))
+		for a in self.attrs:
+			S.write(' %s="%s"' % (_utfstring(a), self._quoteattr(self.attrs[a])))
+		if len(self.nodes) == 0:
+			S.write('/>')
+		else:
+			S.write('>')
+			if not pack:
+				S.write('\n')
+			for node in self.nodes:
+				if isinstance(node, basestring):
+					# Characters:
+					if not pack:
+						S.write(margin)
+						S.write(' ' * align)
+					S.write(_utfstring(node).strip())
+					if not pack:
+						S.write('\n')
+				else:
+					node.toString(align, pack, _offset + 1, S)
+
+			if not pack:
+				S.write(margin)
+			S.write('</%s>' % _utfstring(self.name))
+		if not pack:
+			S.write('\n')
+
+		return S.getvalue()
+
+class _XMLParser(xml.sax.handler.ContentHandler):
+	# XML parser private class
+	def __init__(self):
+		self.tree = []
+
+	def startElement(self, name, attrs):
+		# create new node:
+		ats = {}
+		for a in attrs.keys():
+			ats[a] = attrs[a]
+		node = XMLNode(name, ats)
+		self.tree.append(node)
+
+	def endElement(self, name):
+		if len(self.tree) == 1:
+			# This is the result
+			return
+		prev = self.tree[-2]
+		last = self.tree[-1]
+
+		if last.name != name:
+			raise XMLError, "Invalid closing tag"
+
+		prev.nodes.append(last)
+		del self.tree[-1]
+
+	def characters(self, data):
+		d = data.strip()
+		if len(d) == 0:
+			return
+
+		if len(self.tree[-1].nodes) > 0 and isinstance(self.tree[-1].nodes[-1], basestring):
+			self.tree[-1].nodes[-1] += d
+		else:
+			self.tree[-1].nodes.append(d)
+
+def parseXML(xmls):
+	" Parse XML to XMLNode from string "
+	parser = _XMLParser()
+	xml.sax.parseString(xmls, parser)
+	parser.tree[0].orig = xmls
+	return parser.tree[0]
 
 class XMLInputStream(object):
 	def __init__(self):
@@ -34,6 +145,8 @@ class XMLInputStream(object):
 		self._stream = None
 		self._namespace = None
 		self._close_stream = None
+
+		self.handlers = []
 
 	def data(self, dat):
 		" This method called when new data received "
@@ -83,7 +196,13 @@ class XMLInputStream(object):
 
 
 	def _next_xml(self, xml):
-		print xml
+		x = parseXML(xml)
+
+		for h in self.handlers:
+			if not h(x):
+				return False
+
+		return True
 
 	def _stream_start(self, m):
 		print "Stream start"
@@ -131,5 +250,25 @@ if __name__ == '__main__':
 		X = XMLInputStream()
 		X.data(open(a, 'rt').read())
 
+	# Speed test:
+	from random import choice
+	names = [ "a", "b", "c", "d", "e", "f", "g" ]
 
+	X = XMLInputStream()
+	X.data('<?xml version="1.0"?><stream:stream>')
+	for i in xrange(100000):
+		if (i % 1000) == 0:
+			print "[%d%%]" % (int(i)/1000)
+		a = {}
+		for n in names:
+			a[n] = choice(names)
+		x = XMLNode(choice(names), a)
+
+		for j in xrange(5):
+			a = {}
+			for n in names:
+				a[n] = choice(names)
+			y = XMLNode(choice(names), a)
+			x.nodes.append(y)
+		X.data(x.toString())
 
