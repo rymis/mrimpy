@@ -146,7 +146,9 @@ class XMLInputStream(object):
 		self._namespace = None
 		self._close_stream = None
 
-		self.handlers = []
+		self.h_start = []
+		self.h_stanza = []
+		self.h_end = []
 
 	def data(self, dat):
 		" This method called when new data received "
@@ -197,20 +199,26 @@ class XMLInputStream(object):
 
 	def _next_xml(self, xml):
 		x = parseXML(xml)
-
-		for h in self.handlers:
+		for h in self.h_stanza:
 			if not h(x):
 				return False
-
 		return True
 
 	def _stream_start(self, m):
-		print "Stream start"
+		# TODO!!!
 		stream_name = m.group('stream')
 		self._close_stream = re.compile('\\s*</%s>' % stream_name)
 
-	def _stream_close(self, xml):
-		print "Close stream"
+		for h in self.h_start:
+			if not h('stream', {'to': 'mail.ru'}):
+				return False
+		return True
+
+	def _stream_close(self):
+		for h in self.h_end:
+			if not h():
+				return False
+		return True
 
 class XMLOutputStream(object):
 	" Output stream of XML"
