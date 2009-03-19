@@ -2,6 +2,7 @@
 
 import xmlstream
 import socket
+import select
 
 class XMPPError(Exception):
 	pass
@@ -10,6 +11,7 @@ class XMPPClient(object):
 	" Jaber client representation "
 	def __init__(self, sock):
 		self.sock = sock
+		self.queue = [] # Message queue
 
 	def close(self):
 		" Send </stream> and close connection "
@@ -17,6 +19,10 @@ class XMPPClient(object):
 
 	def fileno(self):
 		return self.sock.fileno()
+
+	def data(self, buf):
+		" data received "
+		pass
 
 class XMPPPlugin(object):
 	" Handler of stanzas "
@@ -51,7 +57,26 @@ class XMPPServer(object):
 
 	def start(self):
 		" Start server "
-		pass
+		self.sock.listen(5)
+
+		while True:
+			# Take all sockets:
+			p = select.poll()
+			p.register(self.sock, select.POLLIN | select.POLLPRI)
+			for c in self.clients:
+				if len(c.queue) > 0:
+					p.register(self.sock, select.POLLIN | select.POLLPRI | select.POLLOUT)
+				else:
+					p.register(self.sock, select.POLLIN | select.POLLPRI)
+
+			r = p.poll(10)
+			for c in r:
+				if isinstance(c[0], socket.Socket):
+					self.accept_client()
+				else:
+					if c[0] & select.POLLIN:
+						buf = c.sock.recv(1024)
+						c.data(buf)
 
 	def stop(self):
 		" Stop server "
