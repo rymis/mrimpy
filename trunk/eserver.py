@@ -104,21 +104,35 @@ class Poll(object):
 					peer = p
 
 			if peer:
-				if r[1] & select.POLLIN:
-					if peer[4]:
-						peer[1](*peer[4])
-					else:
-						peer[1]()
-				if r[1] & select.POLLOUT:
-					if peer[4]:
-						peer[2](*peer[4])
-					else:
-						peer[2]()
-				if r[1] & select.POLLERR:
-					if peer[4]:
-						peer[3](*peer[4])
-					else:
-						peer[3]()
+				try:
+					if r[1] & select.POLLIN:
+						if peer[4]:
+							peer[1](*peer[4])
+						else:
+							peer[1]()
+				except:
+					print "Warning:"
+					print_exc()
+
+				try:
+					if r[1] & select.POLLOUT:
+						if peer[4]:
+							peer[2](*peer[4])
+						else:
+							peer[2]()
+				except:
+					print "Warning:"
+					print_exc()
+
+				try:
+					if r[1] & select.POLLERR:
+						if peer[4]:
+							peer[3](*peer[4])
+						else:
+							peer[3]()
+				except:
+					print "Warning:"
+					print_exc()
 
 		del pl
 
@@ -201,8 +215,3 @@ class EventServer(object):
 		except:
 			print_exc()
 
-	def _client_by_fileno(self, fno):
-		for c in self.clients:
-			if c.fileno() == fno:
-				return c
-		return None

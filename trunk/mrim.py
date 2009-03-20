@@ -247,7 +247,7 @@ For example:
 		else:
 			raise MRIMError, "Unknon type: %s" % type
 
-class Packet(object):
+class MRIMPacket(object):
 	" Low-level MRIM message "
 
 	def __init__(self, magic = CS_MAGIC, proto = PROTO_VERSION, msg = None, fromaddr = 0, fromport = 0, data = None):
@@ -279,7 +279,7 @@ class Packet(object):
 		return struct.pack('<7l16s%ds'%len(d), self.magic, self.proto, self.seq, self.msg, len(d), self.__reverse(self.fromaddr), self.__reverse(self.fromport), res, d)
 
 	def send(self, sock):
-		" send packet over network. addr and port will be calculated at this point "
+		" send MRIMPacket over network. addr and port will be calculated at this point "
 		self.fromaddr, self.fromport = sock.getsockname()
 		self.fromaddr = struct.unpack('>l', socket.inet_aton(self.fromaddr))[0]
 		str = self.encode()
@@ -423,18 +423,18 @@ class MRIMMessage(object):
 		if self.flags & MESSAGE_FLAG_OFFLINE:
 			log("Delete offline message...")
 			D = MRIMData( ("uidl", "UIDL") )
-			M = Packet(msg = MRIM_CS_DELETE_OFFLINE_MESSAGE)
+			M = MRIMPacket(msg = MRIM_CS_DELETE_OFFLINE_MESSAGE)
 			D.data['uidl'] = self.uidl
 			M.data = D.encode()
 
 			self.mrim.send_msg(M)
 		elif not (self.flags & MESSAGE_FLAG_NORECV):
-			log("Sending message received packet...")
+			log("Sending message received MRIMPacket...")
 			D = MRIMData( ('from', 'LPS', 'msgid', 'UL') )
 			D.data['from'] = self.address
 			D.data['msgid'] = self.msg_id
 
-			M = Packet(msg = MRIM_CS_MESSAGE_RECV)
+			M = MRIMPacket(msg = MRIM_CS_MESSAGE_RECV)
 			M.data = D.encode()
 
 			self.mrim.send_msg(M)
@@ -446,7 +446,7 @@ class MRIMMessage(object):
 		log("Authorize user: %s..." % self.address)
 		D = MRIMData( ('user', 'LPS' ) )
 		D.data['user'] = self.address
-		M = Packet(msg = MRIM_CS_AUTHORIZE)
+		M = MRIMPacket(msg = MRIM_CS_AUTHORIZE)
 		M.data = D.encode()
 		self.mrim.send_msg(M)
 
@@ -560,7 +560,7 @@ class ContactList(object):
 
 	def add_contact(self, user, group, flags = 0):
 		" Add new contact to contact list "
-		msg = Packet(msg = MRIM_CS_ADD_CONTACT)
+		msg = MRIMPacket(msg = MRIM_CS_ADD_CONTACT)
 		D = MRIMData( ('flags', 'UL', 'group', 'UL', 'name', 'LPS', 'unused', 'LPS') )
 		D.data['flags'] = flags
 		D.data['group'] = group
@@ -660,13 +660,13 @@ class MailRuAgent(object):
 
 		# Send hello:
 		log('Sending hello...')
-		msg = Packet(msg = MRIM_CS_HELLO)
+		msg = MRIMPacket(msg = MRIM_CS_HELLO)
 		msg.seq = self.seq
 		msg.send(self.sock)
 
 		# And receive ack:
 		log('Receiving ACK...')
-		msg = Packet()
+		msg = MRIMPacket()
 		msg.recv(self.sock)
 
 		if msg.msg != MRIM_CS_HELLO_ACK:
@@ -687,14 +687,14 @@ class MailRuAgent(object):
 		l.data['description'] = 'MRIM Python library v%s. <rymis@mail.ru>' % LIB_VERSION
 
 		log('Sending login...')
-		msg = Packet(msg = MRIM_LOGIN2)
+		msg = MRIMPacket(msg = MRIM_LOGIN2)
 		msg.seq = self.seq
 		msg.data = l.encode()
 		msg.send(self.sock)
 
 		# And receive answere:
 		log('Receiving answere...')
-		msg = Packet()
+		msg = MRIMPacket()
 		msg.recv(self.sock)
 
 		if msg.msg == MRIM_LOGIN_ACK:
@@ -754,7 +754,7 @@ class MailRuAgent(object):
 		if r == []:
 			return None
 
-		msg = Packet()
+		msg = MRIMPacket()
 		msg.recv(self.sock)
 
 		log("New message from server: %s"% repr(msg))
@@ -768,7 +768,7 @@ class MailRuAgent(object):
 
 	def _ping(self):
 		log("PING")
-		msg = Packet(msg = MRIM_CS_PING)
+		msg = MRIMPacket(msg = MRIM_CS_PING)
 		seq = self.seq = self.seq + 1
 		seq -= 1
 		msg.seq = seq
@@ -777,7 +777,7 @@ class MailRuAgent(object):
 	def change_status(self, status):
 		" Change user status "
 		log("Change status to %d" % status)
-		msg = Packet(msg = MRIM_CS_CHANGE_STATUS)
+		msg = MRIMPacket(msg = MRIM_CS_CHANGE_STATUS)
 		seq = self.seq = self.seq + 1
 		seq -= 1
 		msg.seq = seq
@@ -798,7 +798,7 @@ class MailRuAgent(object):
 				raise MRIMError, "Not enought params in send_message "
 			msg = MRIMMessage(msg = txt, flags = MESSAGE_FLAG_NORECV, address = addr)
 
-		M = Packet(msg = MRIM_CS_MESSAGE)
+		M = MRIMPacket(msg = MRIM_CS_MESSAGE)
 		M.seq = self.seq
 		self.seq += 1
 		M.data = msg.encode()
