@@ -10,6 +10,7 @@ try:
 except:
 	from StringIO import StringIO
 import xml.sax, xml.sax.handler
+from xml.sax.saxutils import escape as xml_escape
 
 _name = '[a-zA-Z_][^<>&= \\s]*'
 
@@ -36,10 +37,13 @@ xml['b'].nodes.append(XMLNode(name = "c", attrs = { "x": "y" }))
 xml['b']['c'].nodes.append('string')
 print xml.toString()
 	"""
-	def __init__(self, name = None, attrs = {}, orig = None):
+	def __init__(self, name = None, attrs = None, orig = None):
 		" Create new XMLNode instance "
 		self.name = name
-		self.attrs = attrs
+		if not attrs:
+			self.attrs = {}
+		else:
+			self.attrs = attrs
 		self.nodes = []
 		self.orig = orig
 
@@ -53,7 +57,7 @@ print xml.toString()
 	def _quoteattr(self, s):
 		return s.replace('"', '&quot;')
 
-	def toString(self, align = 4, pack = False, _offset = 0, _S = None):
+	def toString(self, align = 4, pack = False, _offset = 0, _S = None, noclose = False):
 		" Returns string representation of XML. No <?xml...> provided and encoding is always utf-8 "
 
 		if not _S:
@@ -68,7 +72,10 @@ print xml.toString()
 		for a in self.attrs:
 			S.write(' %s="%s"' % (_utfstring(a), self._quoteattr(self.attrs[a])))
 		if len(self.nodes) == 0:
-			S.write('/>')
+			if not noclose:
+				S.write('/>')
+			else:
+				S.wirte('>')
 		else:
 			S.write('>')
 			if not pack:
@@ -79,19 +86,23 @@ print xml.toString()
 					if not pack:
 						S.write(margin)
 						S.write(' ' * align)
-					S.write(_utfstring(node).strip())
+					S.write(xml_escape(_utfstring(node).strip()))
 					if not pack:
 						S.write('\n')
 				else:
 					node.toString(align, pack, _offset + 1, S)
 
-			if not pack:
-				S.write(margin)
-			S.write('</%s>' % _utfstring(self.name))
+			if not noclose:
+				if not pack:
+					S.write(margin)
+				S.write('</%s>' % _utfstring(self.name))
 		if not pack:
 			S.write('\n')
 
 		return S.getvalue()
+
+	def __str__(self):
+		return self.toString()
 
 class _XMLParser(xml.sax.handler.ContentHandler):
 	# XML parser private class
@@ -163,13 +174,20 @@ class XMLInputStream(object):
 			if self._stream:
 				# The stream is started:
 				m = _fulltag.match(self.buf)
-				if not m:
-					m = _fulltag_one.match(self.buf)
-
 				if m:
-					xml = self._preambule + self.buf[:m.end(0)]
-					self.buf = self.buf[m.end(0):]
+					cname = "</%s>" % m.group('tname')
+					first = self.buf.find(cname)
+					if first < 0:
+						raise XMLError, "Can not parse XML"
+					xml = self._preambule + self.buf[:first + len(cname)]
+					self.buf = self.buf[first + len(cname):]
 					self._next_xml(xml)
+				else:
+					m = _fulltag_one.match(self.buf)
+					if m:
+						xml = self._preambule + self.buf[:m.end(0)]
+						self.buf = self.buf[m.end(0):]
+						self._next_xml(xml)
 
 				m = self._close_stream.match(self.buf)
 				if m:
@@ -213,6 +231,12 @@ class XMLInputStream(object):
 			if not h('stream', {'to': 'mail.ru'}):
 				return False
 		return True
+
+	def restart(self):
+		""" Restart stream, so waiting for <?xml version="1.0"?><stream:stream> """
+		self._preambule = None
+		self._stream = None
+		self._process_data()
 
 	def _stream_close(self):
 		for h in self.h_end:

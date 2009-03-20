@@ -1,89 +1,87 @@
 #!/usr/bin/env python
 
 import xmlstream
-import socket
-import select
+from xmlstream import XMLNode
 
-class XMPPError(Exception):
+class IQError(Exception):
 	pass
 
-class XMPPClient(object):
-	" Jaber client representation "
-	def __init__(self, sock):
-		self.sock = sock
-		self.queue = [] # Message queue
+class IQ(object):
+	IQTYPE = ""
 
-	def close(self):
-		" Send </stream> and close connection "
-		self.sock.close()
+	def processIQ(self, xml, client):
+		" Process IQ "
+		r = self.prepareError(xml, client)
+		r['error'].nodes.append(XMLNode("feature-not-implemented", {"xmlns":"urn:ietf:params:xml:ns:xmpp-stanzas"}))
+		client.send(r.toString(pack = True))
 
-	def fileno(self):
-		return self.sock.fileno()
+	def prepareResult(self, xml, client):
+		" Makes template of result IQ "
+		r = XMLNode("iq")
+		if xml.attrs.has_key('id'):
+			r.attrs['id'] = xml.attrs['id']
 
-	def data(self, buf):
-		" data received "
-		pass
+		if client.resource:
+			r.attrs['to'] = client.resource
 
-class XMPPPlugin(object):
-	" Handler of stanzas "
-	STANZAS = []
+		r.attrs['type'] = 'result'
 
-	def register(self, server):
-		" Register this plugin "
-		self.server = server
+		return r
 
-	def unregister(self):
-		" Unregister plugin "
-		pass
+	def prepareError(self, xml, client):
+		" Makes template of error result "
+		r = self.prepareResult(xml, client)
+		r.attrs['type'] = 'error'
 
-	def process_stanza(self, xml, client):
-		" Process stanza "
-		pass
+		r.nodes.extend(xml.nodes)
+		r.nodes.append(XMLNode('error'))
 
-	def get_features(self):
+		return r
+
+	def getFeatures(self):
+		" Get supported features or None "
 		return None
 
-class XMPPServer(object):
-	def __init__(self, addr = ('127.0.0.1', 5221), no_register_defaults = False):
-		self.sock = socket.socket(socket.SOCK_STREAM)
-		self.sock.bind(addr)
-		self.clients = []
-		self.plugins = []
+class Bind(IQ):
+	IQTYPE = "bind"
 
-		if not no_register_defaults:
-			for P in xmpp_plugins.PLUGINS:
-				p = P()
-				self.register_plugin(p)
+	def processIQ(self, xml, client):
+		if not xml['bind']['resource']:
+			r = self.prepareError(xml, client)
+			r['error'].nodes.append(XMLNode("bad-request"))
+			return r
+		res = None
+		for c in xml['bind']['resource'].nodes:
+			if isinstance(c, basestring):
+				res = c
+				break
+		if not res:
+			r = self.prepareError(xml, client)
+			r['error'].nodes.append(XMLNode("bad-request"))
+			return r
 
-	def start(self):
-		" Start server "
-		self.sock.listen(5)
+		r = self.prepareResult(xml, client)
+		bnd = XMLNode("bind", {"xmlns": 'urn:ietf:params:xml:ns:xmpp-bind'})
+		bnd.nodes.append(XMLNode("jid"))
+		bnd["jid"].nodes.append("%s@%s/MRIM" % (client.user, client.from_))
+		r.nodes.append(bnd)
 
-		while True:
-			# Take all sockets:
-			p = select.poll()
-			p.register(self.sock, select.POLLIN | select.POLLPRI)
-			for c in self.clients:
-				if len(c.queue) > 0:
-					p.register(self.sock, select.POLLIN | select.POLLPRI | select.POLLOUT)
-				else:
-					p.register(self.sock, select.POLLIN | select.POLLPRI)
+		client.send(r.toString(pack = True))
 
-			r = p.poll(10)
-			for c in r:
-				if isinstance(c[0], socket.Socket):
-					self.accept_client()
-				else:
-					if c[0] & select.POLLIN:
-						buf = c.sock.recv(1024)
-						c.data(buf)
+		client.resource = "%s@%s/MRIM" % (client.user, client.from_)
 
-	def stop(self):
-		" Stop server "
-		pass
+	def getFeatures(self):
+		return XMLNode("bind", {"xmlns": "urn:ietf:params:xml:ns:xmpp-bind"})
 
-	def register_plugin(self, p):
-		" Register new plugin "
-		self.plugins.append(p)
-		p.register(self)
+class Session(IQ):
+	IQTYPE = "session"
+
+	def processIQ(self, xml, client):
+		r = self.prepareResult(xml, client)
+		client.send(r.toString())
+
+	def getFeatures(self):
+		return XMLNode("session", {"xmlns": "urn:ietf:params:xml:ns:xmpp-session"})
+
+PLUGINS = [ IQ, Bind, Session ]
 
