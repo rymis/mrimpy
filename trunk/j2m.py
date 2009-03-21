@@ -14,8 +14,22 @@ import mrim
 import base64
 from traceback import print_exc
 
+PLUGINS = xmpp.PLUGINS
+class ProtocolProxy(object):
+	" Mapping Jabber packets to another protocol "
+
+	def __init__(self, jclient):
+		self.xmpp = jclient
+
+	" Callbacks: "
+	def auth(self, user, password):
+		" Authenticate user. Result must be sent by calling authReject or authSuccess methods "
+		pass
+
+	" Helper methods: "
+
 class Jabber2MRIM(eserver.Protocol):
-	def __init__(self, sock, server):
+	def __init__(self, sock, server, Proxy):
 		super(Jabber2MRIM, self).__init__(sock, server)
 
 		self.xml = xmlstream.XMLInputStream()
@@ -28,10 +42,10 @@ class Jabber2MRIM(eserver.Protocol):
 
 		self.h_xmpp = { "auth": [self.xmppAuth], "iq": [self.xmppIQ] }
 
-		self.mrim = None
+		self.proxy = Proxy()
 
 		self.iqs = {}
-		for pclass in xmpp.PLUGINS:
+		for pclass in PLUGINS:
 			p = pclass()
 			self.iqs[p.IQTYPE] = p
 		self.user = None
@@ -120,13 +134,29 @@ class Jabber2MRIM(eserver.Protocol):
 			self.send(t.toString())
 
 		name, passwd = sl[-2:]
-		print "Auth: <%s> <%s>" % (name, passwd)
 
+		try:
+			self.proxy.auth(name, passwd)
+			self._user = name
+		except:
+			print_exc()
+			r = XMLNode("reject", {"xmlns": "urn:ietf:params:xml:ns:xmpp-sasl"})
+			r.nodes.append(XMLNode(name = "not-authorized"))
+			self.sock.send(r.toString())
+			self.sock.send("</%s:stream>" % self.namespace)
+
+	def authSuccess(self):
 		r = XMLNode("success", {"xmlns": "urn:ietf:params:xml:ns:xmpp-sasl"})
 		self.send(r.toString())
 
-		self.user = name
+		self.user = self._user
 		self.xml.restart()
+
+	def authReject(self):
+		r = XMLNode("reject", {"xmlns": "urn:ietf:params:xml:ns:xmpp-sasl"})
+		r.nodes.append(XMLNode(name = "not-authorized"))
+		self.sock.send(r.toString())
+		self.sock.send("</%s:stream>" % self.namespace)
 
 	def xmppIQ(self, xml):
 		if len(xml.nodes) == 0:
@@ -138,6 +168,15 @@ class Jabber2MRIM(eserver.Protocol):
 				self.iqs[n.name].processIQ(xml, self)
 			else:
 				self.iqs[''].processIQ(xml, self)
+
+class MRIMProxy(ProtocolProxy):
+	def __init__(self, jclient):
+		super(MRIMProxy, self).__init__(jclient)
+		self.mrim = MailRuAgent()
+
+	def auth(self, user, passwd):
+		self.mrim.connect("%s@%s" % (user, self.xmpp.from_), passwd)
+		self.xmpp.authSuccess()
 
 if __name__ == '__main__':
 	S = eserver.EventServer( ('localhost', 5222), Jabber2MRIM )

@@ -249,6 +249,7 @@ For example:
 
 class MRIMPacket(object):
 	" Low-level MRIM message "
+	LEN = struct.calcsize('<7l16s')
 
 	def __init__(self, magic = CS_MAGIC, proto = PROTO_VERSION, msg = None, fromaddr = 0, fromport = 0, data = None):
 		self.magic = magic
@@ -292,7 +293,7 @@ class MRIMPacket(object):
 
 	def recv(self, sock):
 		" receive data header from socket "
-		ln = struct.calcsize('<7l16s')
+		ln = self.LEN
 
 		# read len bytes:
 		str = ''
@@ -702,6 +703,7 @@ class MailRuAgent(object):
 			log("Login OK...")
 		elif msg.msg == MRIM_LOGIN_REJ:
 			D = MRIMData( ('reason', 'LPS') )
+			D.decode(msg.data)
 			self.sock.close()
 			self.sock = None
 			raise MRIMError, "Login rejected: %s" % D.data['reason']
