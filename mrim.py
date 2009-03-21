@@ -584,6 +584,9 @@ class ContactList(object):
 		" Remove group from contact list "
 		pass
 
+SESSION_OPENED = 1
+LOGGED_IN = 2
+
 class MailRuAgent(object):
 	" main class for protocol "
 
@@ -598,6 +601,7 @@ class MailRuAgent(object):
 		self._queue = []
 		self._buf = ""
 		self.autoreconnect = True
+		self.state = 0
 
 		if not no_load_plugins:
 			import mrim_plugins
@@ -666,22 +670,12 @@ class MailRuAgent(object):
 		msg = MRIMPacket(msg = MRIM_CS_HELLO)
 		msg.seq = self.seq
 		msg.send(self)
-
-		# And receive ack:
-		log('Receiving ACK...')
-		msg = MRIMPacket()
-		msg.recv(self.sock)
-
-		if msg.msg != MRIM_CS_HELLO_ACK:
-			log("Error: not valid message from server")
-			raise MRIMError, 'Invalid server answere'
-		D = MRIMData( ('ping_period', 'UL') )
-		D.decode(msg.data)
-		self.ping_period = D.data['ping_period']
-		log('PING period is set to %d' % self.ping_period)
-
 		self.seq += 1
 
+	def login(self, user, password, status = STATUS_ONLINE):
+		" Login to server "
+		if self.state != SESSION_OPENED:
+			raise MRIMError, "Invalid session state"
 		# Send login and password:
 		l = MRIMData( ('login', 'LPS', 'password', 'LPS', 'status', 'UL', 'description', 'LPS') )
 		l.data['login'] = user
@@ -700,29 +694,7 @@ class MailRuAgent(object):
 		msg = MRIMPacket()
 		msg.recv(self.sock)
 
-		if msg.msg == MRIM_LOGIN_ACK:
-			# Ok.
-			log("Login OK...")
-		elif msg.msg == MRIM_LOGIN_REJ:
-			D = MRIMData( ('reason', 'LPS') )
-			D.decode(msg.data)
-			self.sock.close()
-			self.sock = None
-			raise MRIMError, "Login rejected: %s" % D.data['reason']
-		else:
-			self.sock.close()
-			self.sock = None
-			raise MRIMError, "Unknown protocol message from server"
-
-		self.last_ping = time.time()
-		self.seq += 1
-
 		self.address = user
-		self.__password = password
-
-	def reconnect(self):
-		" reconnect after connection last "
-		self.connect(self.address, self.__password)
 
 	def send_msg(self, msg, seq = None):
 		" Send message to server "
