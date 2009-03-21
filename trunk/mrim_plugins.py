@@ -168,6 +168,36 @@ class UserStatus(MRIMPlugin):
 
 		self.mrim.call_action( 'user_status', (D.data['user'], D.data['status']))
 
+class HelloACK(MRIMPlugin):
+	MESSAGE = MRIM_CS_HELLO_ACK
 
-PLUGINS_ALL = [ UserInfo, ContactList2, OfflineMessage, RTFFormat, MessageStatus, MessageACK, ConnectionParams, UserStatus ]
+	def message_received(self, msg):
+		D = MRIMData( ('ping_period', 'UL') )
+		D.decode(msg.data)
+		self.mrim.ping_period = D.data['ping_period']
+		log('PING period is set to %d' % self.ping_period)
+
+		self.mrim.state = SESSION_OPENED
+
+class LoginACK(MRIMPlugin):
+	MESSAGE = MRIM_LOGIN_ACK
+
+	def message_received(self, msg):
+		log("Login Ok.")
+		self.mrim.state = LOGGED_IN
+		self.mrim.call_action("login_success", [])
+
+
+class LoginReject(MRIMPlugin):
+	MESSAGE = MRIM_LOGIN_REJ
+
+	def message_received(self, msg):
+		log("Login Ok.")
+		D = MRIMData( ('reason', 'LPS') )
+		D.decode(msg.data)
+		self.mrim.call_action("login_reject", [D.data['reason']])
+		self.mrim.close()
+
+
+PLUGINS_ALL = [ UserInfo, ContactList2, OfflineMessage, RTFFormat, MessageStatus, MessageACK, ConnectionParams, UserStatus, HelloACK, LoginACK, LoginReject ]
 
