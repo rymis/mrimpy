@@ -173,10 +173,18 @@ class MRIMProxy(ProtocolProxy):
 	def __init__(self, jclient):
 		super(MRIMProxy, self).__init__(jclient)
 		self.mrim = MailRuAgent()
+		self.mrim.add_handler('auth_success', self.h_auth_success)
+		self.mrim.add_handler('auth_reject', self.h_auth_reject)
 
 	def auth(self, user, passwd):
 		self.mrim.connect("%s@%s" % (user, self.xmpp.from_), passwd)
 		self.xmpp.authSuccess()
+
+	def h_auth_success(self):
+		self.xmpp.authSuccess()
+
+	def h_auth_reject(self, reason):
+		self.xmpp.authReject()
 
 if __name__ == '__main__':
 	S = eserver.EventServer( ('localhost', 5222), Jabber2MRIM )
