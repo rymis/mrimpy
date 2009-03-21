@@ -595,6 +595,8 @@ class MailRuAgent(object):
 		self.plugins = {}
 		self.methods = {}
 		self.actions = {}
+		self._queue = []
+		self._buf = ""
 		self.autoreconnect = True
 
 		if not no_load_plugins:
@@ -663,7 +665,7 @@ class MailRuAgent(object):
 		log('Sending hello...')
 		msg = MRIMPacket(msg = MRIM_CS_HELLO)
 		msg.seq = self.seq
-		msg.send(self.sock)
+		msg.send(self)
 
 		# And receive ack:
 		log('Receiving ACK...')
@@ -691,7 +693,7 @@ class MailRuAgent(object):
 		msg = MRIMPacket(msg = MRIM_LOGIN2)
 		msg.seq = self.seq
 		msg.data = l.encode()
-		msg.send(self.sock)
+		msg.send(self)
 
 		# And receive answere:
 		log('Receiving answere...')
@@ -727,7 +729,7 @@ class MailRuAgent(object):
 		if not seq:
 			msg.seq = self.seq
 			self.seq += 1
-		msg.send(self.sock)
+		msg.send(self)
 		return msg.seq
 
 	def is_connected(self):
@@ -738,9 +740,31 @@ class MailRuAgent(object):
 		if self.sock:
 			self.sock.close()
 			self.sock = None
+			self.call_action('connection_closed', [])
 
-	def send(self, msg):
-		msg.send(self.sock)
+	def send(self, data):
+		self._queue.append(data)
+		return len(data)
+
+	def getsockname(self):
+		" Socket interface functions "
+		return sock.getsockname()
+
+	def _send(self):
+		if len(self._queue) == 0:
+			return
+		l = self.sock.send(self._queue[0])
+		if l < 0:
+			raise MRIMError, "Network problems"
+		if l == len(self._queue[0]):
+			del self._queue[0]
+		else:
+			self._queue[0] = self._queue[0][l:]
+
+	def dataReceived(self, data):
+		" You must call this function if data received on socket. Or call idle "
+		self._buf += data
+		self._processBuf()
 
 	def idle(self):
 		" this function will try to read server message, and if present call action handler. Also if need ping processed. "
@@ -752,21 +776,38 @@ class MailRuAgent(object):
 			self._ping()
 			self.last_ping = time.time()
 
-		(r, w, x) = select.select([self.sock], [], [], 0)
-		if r == []:
-			return None
+		(r, w, x) = select.select([self.sock], [self.sock], [], 0)
 
-		msg = MRIMPacket()
-		msg.recv(self.sock)
+		if len(w) > 0:
+			self._send()
+		if len(r) > 0:
+			buf = r.recv(1024)
+			if len(buf) == 0:
+				# Connection closed
+				self.close()
+			self.dataReceived(buf)
 
-		log("New message from server: %s"% repr(msg))
-		# TODO: call action handlers
 
-		for pn in self.plugins:
-			p = self.plugins[pn]
-			if p.is_my_message(msg.msg):
-				log("Plugin %s: processing message..." % pn)
-				p.message_received(msg)
+	def _processBuf(self):
+		while True:
+			msg = MRIMPacket()
+			if len(self._buf) >= msg.LEN:
+				msg.decode(msg, self._buf[:msg.LEN])
+				if msg.dlen + msg.LEN <= len(self._buf):
+					msg.data = self._buf[msg.LEN: msg.LEN + msg.dlen]
+					self._buf = self._buf[msg.LEN + msg.dlen:]
+					log("New message from server: %s"% repr(msg))
+
+					for pn in self.plugins:
+						p = self.plugins[pn]
+						if p.is_my_message(msg.msg):
+							log("Plugin %s: processing message..." % pn)
+							p.message_received(msg)
+				else:
+					break
+			else:
+				break
+
 
 	def _ping(self):
 		log("PING")
@@ -774,7 +815,7 @@ class MailRuAgent(object):
 		seq = self.seq = self.seq + 1
 		seq -= 1
 		msg.seq = seq
-		msg.send(self.sock)
+		msg.send(self)
 
 	def change_status(self, status):
 		" Change user status "
@@ -787,7 +828,7 @@ class MailRuAgent(object):
 		l['status'] = status
 		msg.data = l.encode()
 
-		msg.send(self.sock)
+		msg.send(self)
 
 		if status == STATUS_OFFLINE:
 			self.close()
@@ -805,7 +846,7 @@ class MailRuAgent(object):
 		self.seq += 1
 		M.data = msg.encode()
 
-		M.send(self.sock)
+		M.send(self)
 
 		return M.seq
 
