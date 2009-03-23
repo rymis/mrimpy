@@ -37,6 +37,10 @@ class ProtocolProxy(object):
 		" Return roster using sendRoster method "
 		raise XMPPError, "Not supported"
 
+	def presence(self, type, xml):
+		" set client presence to type "
+		pass
+
 	" Helper methods: "
 
 class JabberServer(eserver.Protocol):
@@ -51,7 +55,7 @@ class JabberServer(eserver.Protocol):
 		self.id = str(random.randint(100000000, 999999999))
 		self.from_ = None
 
-		self.h_xmpp = { "auth": [self.xmppAuth], "iq": [self.xmppIQ] }
+		self.h_xmpp = { "auth": [self.xmppAuth], "iq": [self.xmppIQ], 'presence': [self.xmppPresence] }
 
 		self.proxy = Proxy()
 		self.proxy.server = self
@@ -62,6 +66,7 @@ class JabberServer(eserver.Protocol):
 			self.iqs[p.IQTYPE] = p
 		self.user = None
 		self.resource = None
+		self.presence = "online"
 
 	def startStream(self, ns, attrs):
 		print "START STREAM"
@@ -111,7 +116,11 @@ class JabberServer(eserver.Protocol):
 	def xmlReceive(self, xml):
 		if self.h_xmpp.has_key(xml.name):
 			for h in self.h_xmpp[xml.name]:
-				if not h(xml):
+				try:
+					if not h(xml):
+						return False
+				except:
+					print_exc()
 					return False
 		else:
 			print "Unknown stanza:\n", xml
@@ -150,6 +159,7 @@ class JabberServer(eserver.Protocol):
 			self.sock.send("</%s:stream>" % self.namespace)
 
 	def authSuccess(self):
+		" Success authorization "
 		r = XMLNode("success", {"xmlns": "urn:ietf:params:xml:ns:xmpp-sasl"})
 		self.send(r.toString())
 
@@ -157,6 +167,7 @@ class JabberServer(eserver.Protocol):
 		self.xml.restart()
 
 	def authReject(self):
+		" Authorization failure "
 		r = XMLNode("reject", {"xmlns": "urn:ietf:params:xml:ns:xmpp-sasl"})
 		r.nodes.append(XMLNode(name = "not-authorized"))
 		self.sock.send(r.toString())
@@ -172,6 +183,17 @@ class JabberServer(eserver.Protocol):
 				self.iqs[n.name].processIQ(xml, self)
 			else:
 				self.iqs[''].processIQ(xml, self)
+
+	def xmppPresence(self, xml):
+		if xml.attrs.has_key('type'):
+			show = xml.attrs['type']
+		else:
+			if xml['show']:
+				show = xml['show'].nodes[0]
+			else:
+				show = 'online'
+
+		self.proxy.presence(show, xml)
 
 	def sendVCard(self, id, info):
 		" Send vCard to client. Info is map with params "
@@ -200,4 +222,16 @@ class JabberServer(eserver.Protocol):
 			roster.nodes.append(item)
 
 		self.send(r.toString())
+
+	def sendPresence(self, user, status, msg = None):
+		" Send presence of user to client "
+		if not msg:
+			msg = status
+		r = XMLNode('presence', { 'from': user, 'to': self.resource})
+		if status != 'online':
+			r.attrs['type'] = status
+		r.nodes.append(XMLNode('status'))
+		r['status'].nodes.append(msg)
+
+		self.send(r.toString(pack=True))
 
