@@ -8,9 +8,9 @@ import eserver
 class UserList(object):
 	def __init__(self):
 		self.users = [
-			( 'test1', 'test1' ),
-			( 'test2', 'test2' ),
-			( 'test3', 'test3' )
+			[ 'test1', 'test1', 0 ],
+			[ 'test2', 'test2', 0 ],
+			[ 'test3', 'test3', 0 ]
 		]
 
 	def hasUser(self, name):
@@ -27,7 +27,6 @@ class UserList(object):
 
 		return False
 
-
 __users = None
 def GetUserList():
 	global __users
@@ -41,12 +40,15 @@ class SimpleJServer(ProtocolProxy):
 		super(SimpleJServer, self).__init__()
 		self.users = GetUserList()
 		self.domain = 'example.net'
+		self.user = None
+		self.online = None
 
 	def auth(self, user, password):
 		if self.server.from_ != self.domain or not self.users.auth(user, password):
 			print "Authorization failed: %s@%s" % (user, self.server.from_)
 			self.server.authReject()
 		else:
+			self.user = '%s@%s' % (user, self.server.from_)
 			self.server.authSuccess()
 
 	def vCardRequest(self, id):
@@ -58,9 +60,29 @@ class SimpleJServer(ProtocolProxy):
 		r = []
 		for u in self.users.users:
 			if u[0] != self.server.user:
-				r.append( (u[0], u[0], 'both', 'GROUP') )
+				r.append( ("%s@%s" % (u[0], self.server.from_), u[0], 'both', 'GROUP') )
 
 		self.server.sendRoster(id, r)
+
+		for u in self.users.users:
+			# is he online?
+			if u[2]:
+				self.server.sendPresence("%s@%s" % (u[0], self.server.from_), 'online')
+			else:
+				self.server.sendPresence("%s@%s" % (u[0], self.server.from_), 'unavailable')
+
+	def presence(self, type, xml):
+		if type != 'unavailable':
+			self.online = True
+		else:
+			self.online = False
+		for u in self.users.users:
+			if u[0] == self.server.user:
+				u[2] = self.online
+
+		for c in self.server.server.clients:
+			if c != self.server:
+				c.sendPresence(self.user, type)
 
 if __name__ == '__main__':
 	J = eserver.EventServer(('localhost', 5222), JabberServer, [SimpleJServer])
