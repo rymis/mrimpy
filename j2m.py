@@ -56,16 +56,17 @@ class MRIMGW(ProtocolProxy):
 	def message(self, msg):
 		print msg.toString()
 		msg_to = msg.attrs['to']
-		msg.attrs['from'] = self.user
-		del msg.attrs['to']
 
-		# Searching for msg_to session:
-		for c in self.server.server.clients:
-			if c.proxy.user == msg_to:
-				c.send(msg.toString(pack=True))
+		body = "".join([m for m in msg['body'].nodes if isinstance(m, basestring)])
+
+		self.mrim.send_message(body, msg_to)
+
 
 	def pollRegister(self, poll):
 		self.mrim.pollRegister(poll)
+
+	def idle(self):
+		self.mrim.ping()
 
 	def h_hello_ack(self):
 		(user, password) = self._auth
@@ -98,7 +99,14 @@ class MRIMGW(ProtocolProxy):
 		self.server.sendPresence(user, st, show = show)
 
 	def h_message(self, msg):
-		pass
+		# Message from MRIM:
+		m = XMLNode('message', { "from": msg.address, 'type': 'chat', 'xmlns': 'jabber:client' })
+		m.nodes.append(XMLNode('body'))
+		m['body'].nodes.append(msg.msg)
+
+		self.server.send(m.toString(pack = True))
+
+		msg.submit()
 
 	def h_login_success(self):
 		self.server.authSuccess()
@@ -108,7 +116,7 @@ class MRIMGW(ProtocolProxy):
 
 	def h_user_info(self, info):
 		self._FN = info['MRIM.NICKNAME'].decode(mrim.MRIM_ENCODING)
-		if _vreq_id:
+		if self._vreq_id:
 			self._send_vcard()
 
 	def _send_vcard(self):
@@ -141,6 +149,7 @@ class MRIMGW(ProtocolProxy):
 
 if __name__ == '__main__':
 	J = eserver.EventServer(('localhost', 5222), JabberServer, [MRIMGW])
+	J.idle_timeout = 1
 	try:
 		J.start()
 	except:

@@ -376,11 +376,13 @@ class MRIMMessage(object):
 
 		self.flags = D.data['flags']
 		if self.flags & MESSAGE_FLAG_RTF:
-			self.rtf_msg = D.data['rtf']
+			R = MRIMData( ('lpscnt', 'UL', 'rtf', 'LPS', 'bgcolor', 'UL') )
+			t = R.decode(zlib.decompress(base64.b64decode(D.data['rtf'])))
+			self.rtf_msg = R.data['rtf']
 		else:
 			self.rtf_msg = None
 
-		self.msg = D.data['message']
+		self.msg = D.data['message'].decode(MRIM_ENCODING, 'replace')
 		self.address = D.data['from']
 		self.msg_id = D.data['msg_id']
 
@@ -469,7 +471,8 @@ class MRIMMessage(object):
 			self.xml_msg = self.msg
 		else:
 			# TODO: process RTF
-			msg = self.rtf.replace('{', '').replace('}', '')
+			# self.msg = self.rtf_msg.decode(MRIM_ENCODING)
+			self.xml_msg = self.msg
 
 class MRIMPlugin(object):
 	def message_received(self, message):
@@ -736,10 +739,7 @@ class MailRuAgent(object):
 		if not self.sock:
 			return
 
-		t = time.time()
-		if abs(t - self.last_ping) > self.ping_period:
-			self._ping()
-			self.last_ping = time.time()
+		self.ping()
 
 		(r, w, x) = select.select([self.sock], [self.sock], [], 0)
 
@@ -747,6 +747,13 @@ class MailRuAgent(object):
 			self._send()
 		if len(r) > 0:
 			self._read()
+
+	def ping(self):
+		" Send ping if need "
+		t = time.time()
+		if abs(t - self.last_ping) > self.ping_period:
+			self._ping()
+			self.last_ping = time.time()
 
 	def _read(self):
 		buf = self.sock.recv(1024)
