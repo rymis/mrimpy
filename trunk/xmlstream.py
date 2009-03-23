@@ -223,12 +223,14 @@ class XMLInputStream(object):
 		return True
 
 	def _stream_start(self, m):
-		# TODO!!!
 		stream_name = m.group('stream')
 		self._close_stream = re.compile('\\s*</%s>' % stream_name)
 
+		stag = "%s</%s>"  % (m.group(0), stream_name)
+		x = parseXML(stag)
+
 		for h in self.h_start:
-			if not h('stream', {'to': 'mail.ru'}):
+			if not h(stream_name.split(':')[0], x.attrs):
 				return False
 		return True
 
