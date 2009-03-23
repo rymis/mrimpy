@@ -404,6 +404,7 @@ class main_window(object):
 		self.mrim.add_handler('message', self.message_received)
 		self.mrim.add_handler('message_status', self.message_status)
 		self.mrim.add_handler('authorization_request', self.authorization_received)
+		self.mrim.add_handler('hello_ack', self.h_hello_ack)
 
 		self.name = None
 		self.password = None
@@ -545,8 +546,12 @@ class main_window(object):
 				return None
 
 		print "Connecting to MRIM..."
-		self.mrim.connect(self.name, self.password, status = status)
+		self.mrim.connect()
 		print "Connected..."
+
+	def h_hello_ack(self):
+		print "Login"
+		self.mrim.login(self.name, self.status)
 
 	def ask_pass(self):
 		dlg = gtk.Dialog("Enter password:", self.glade.window1, gtk.DIALOG_MODAL, (gtk.STOCK_OK, gtk.RESPONSE_OK, gtk.STOCK_CANCEL, gtk.RESPONSE_CANCEL))

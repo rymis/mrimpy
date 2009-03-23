@@ -228,13 +228,16 @@ class JabberServer(eserver.Protocol):
 
 		self.send(r.toString())
 
-	def sendPresence(self, user, status, msg = None):
+	def sendPresence(self, user, status, msg = None, show = None):
 		" Send presence of user to client "
 		if not msg:
 			msg = status
 		r = XMLNode('presence', { 'from': user, 'to': self.resource})
 		if status != 'online':
 			r.attrs['type'] = status
+		if show:
+			r.nodes.append(XMLNode('show'))
+			r['show'].nodes.append(show)
 		r.nodes.append(XMLNode('status'))
 		r['status'].nodes.append(msg)
 

@@ -1,195 +1,149 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
-# Main module of Jabber2MRIM gateway.
+" MailRu gateway main "
 
-import eserver
-import xmlstream
-from xmlstream import XMLNode
-import random
-import xmpp
-
-from mrim import MRIMPacket, MRIMData
+from xmpp import *
 import mrim
+import eserver
 
-import base64
-from traceback import print_exc
+class MRIMGW(ProtocolProxy):
+	def __init__(self):
+		super(MRIMGW, self).__init__()
 
-PLUGINS = xmpp.PLUGINS
-class ProtocolProxy(object):
-	" Mapping Jabber packets to another protocol "
+		self.mrim_user = None
+		self.mrim = mrim.MailRuAgent()
 
-	def __init__(self, jclient):
-		self.xmpp = jclient
+		self.mrim.add_handler('hello_ack', self.h_hello_ack)
+		self.mrim.add_handler('contact_list', self.h_contact_list)
+		self.mrim.add_handler('user_status', self.h_user_status)
+		self.mrim.add_handler('message', self.h_message)
+		self.mrim.add_handler('login_success', self.h_login_success)
+		self.mrim.add_handler('login_reject', self.h_login_reject)
+		self.mrim.add_handler('user_info', self.h_user_info)
 
-	" Callbacks: "
+		self._clist = None
+		self._creq_id = None
+		self._vreq_id = None
+		self._FN = None
+
 	def auth(self, user, password):
-		" Authenticate user. Result must be sent by calling authReject or authSuccess methods "
-		pass
+		# Connect to server:
+		self.mrim.connect()
+		self._auth = (user, password)
 
-	" Helper methods: "
+	def vCardRequest(self, id):
+		self._vreq_id = id
+		if self._FN:
+			self._send_vcard()
 
-class Jabber2MRIM(eserver.Protocol):
-	def __init__(self, sock, server, Proxy):
-		super(Jabber2MRIM, self).__init__(sock, server)
+	def rosterRequest(self, id):
+		self._creq_id = id
+		if self._clist:
+			self._send_contact_list()
 
-		self.xml = xmlstream.XMLInputStream()
-		self.xml.h_start.append(self.startStream)
-		self.xml.h_stanza.append(self.xmlReceive)
-		self.xml.h_end.append(self.endStream)
-
-		self.id = str(random.randint(100000000, 999999999))
-		self.from_ = None
-
-		self.h_xmpp = { "auth": [self.xmppAuth], "iq": [self.xmppIQ] }
-
-		self.proxy = Proxy()
-
-		self.iqs = {}
-		for pclass in PLUGINS:
-			p = pclass()
-			self.iqs[p.IQTYPE] = p
-		self.user = None
-		self.resource = None
-
-	def startStream(self, ns, attrs):
-		print "START STREAM"
-		self.from_ = attrs['to']
-		self.namespace = ns
-
-		node = XMLNode("%s:stream" % self.namespace, {
-			"id": str(self.id),
-			"version": "1.0",
-			"xmlns": "jabber:client",
-			"xmlns:stream": "http://etherx.jabber.org/streams",
-			"from": self.from_
-		})
-
-		if not self.user:
-			fs = XMLNode("%s:features" % self.namespace)
-			mechs = XMLNode("mechanisms", {"xmlns": "urn:ietf:params:xml:ns:xmpp-sasl"})
-			mech = XMLNode("mechanism")
-			mech.nodes.append("PLAIN")
-			mechs.nodes.append(mech)
-			fs.nodes.append(mechs)
-			node.nodes.append(fs)
+	def presence(self, type, xml):
+		if type == 'unavailable':
+			status = mrim.STATUS_OFFLINE
+		elif xml['show'] and xml['show'].nodes[0] == 'away':
+			status = mrim.STATUS_AWAY
 		else:
-			fs = XMLNode("%s:features" % self.namespace)
-			for p in self.iqs:
-				f = self.iqs[p].getFeatures()
-				if f:
-					fs.nodes.append(f)
-			node.nodes.append(fs)
-		self.send(node.toString(pack = True, noclose = True))
+			status = mrim.STATUS_ONLINE
 
-	def endStream(self):
-		if self.mrim:
-			self.mrim.close()
-		self.close()
-		print "The End!"
+		self.mrim.change_status(status)
 
-	def processData(self, buf):
-		try:
-			self.xml.data(buf)
-		except:
-			print_exc()
-			self.sock.close()
-			self.server.removeClient(self)
+
+	def message(self, msg):
+		print msg.toString()
+		msg_to = msg.attrs['to']
+		msg.attrs['from'] = self.user
+		del msg.attrs['to']
+
+		# Searching for msg_to session:
+		for c in self.server.server.clients:
+			if c.proxy.user == msg_to:
+				c.send(msg.toString(pack=True))
 
 	def pollRegister(self, poll):
-		if self.mrim:
-			if len(self.mrim.queue) > 0:
-				w_f = self.mrim._write_q
-			else:
-				w_f = None
+		self.mrim.pollRegister(poll)
 
-			poll.register(self.mrim.sock, read_f = self.mrim._read, write_f = w_f)
+	def h_hello_ack(self):
+		(user, password) = self._auth
+		self._auth = None
+		self.mrim_user = "%s@%s" % (user, self.server.from_)
+		self.mrim.login(self.mrim_user, password)
 
-	def xmlReceive(self, xml):
-		if self.h_xmpp.has_key(xml.name):
-			for h in self.h_xmpp[xml.name]:
-				if not h(xml):
-					return False
+	def h_contact_list(self, grps, cl):
+		self._clist = (grps, cl)
+		if self._creq_id:
+			self._send_contact_list()
+
+	def h_user_status(self, user, status):
+		s = status
+		if s == mrim.STATUS_OFFLINE:
+			st = 'unavailable'
+			show = None
+		elif s == mrim.STATUS_ONLINE:
+			st = 'online'
+			show = None
+		elif s == mrim.STATUS_AWAY:
+			st = 'online'
+			show = 'away'
+		elif s == mrim.STATUS_UNDETERMINATED:
+			st = 'unavailable'
+			show = None
 		else:
-			print "Unknown stanza:\n", xml
-		return True
+			st = 'unavailable'
+			show = None
+		self.server.sendPresence(user, st, show = show)
 
-	def xmppAuth(self, xml):
-		" Authorization "
-		print "AUTH"
-		b64 = None
-		for x in xml.nodes:
-			if isinstance(x, basestring):
-				b64 = x
+	def h_message(self, msg):
+		pass
 
-		if not b64:
-			r = XMLNode(name = "reject", attrs = {"xmlns": "urn:ietf:params:xml:ns:xmpp-sasl"})
-			r.nodes.append(XMLNode(name = "not-authorized"))
-			self.send(t.toString())
+	def h_login_success(self):
+		self.server.authSuccess()
 
-		str = base64.b64decode(b64)
-		sl = str.split('\000')
-		if len(sl) < 2:
-			r = XMLNode(name = "reject", attrs = {"xmlns": "urn:ietf:params:xml:ns:xmpp-sasl"})
-			r.nodes.append(XMLNode(name = "not-authorized"))
-			self.send(t.toString())
+	def h_login_reject(self, reason):
+		self.server.authReject()
 
-		name, passwd = sl[-2:]
+	def h_user_info(self, info):
+		self._FN = info['MRIM.NICKNAME'].decode(mrim.MRIM_ENCODING)
+		if _vreq_id:
+			self._send_vcard()
 
-		try:
-			self.proxy.auth(name, passwd)
-			self._user = name
-		except:
-			print_exc()
-			r = XMLNode("reject", {"xmlns": "urn:ietf:params:xml:ns:xmpp-sasl"})
-			r.nodes.append(XMLNode(name = "not-authorized"))
-			self.sock.send(r.toString())
-			self.sock.send("</%s:stream>" % self.namespace)
+	def _send_vcard(self):
+		self.server.sendVCard(self._vreq_id, {'FN': self._FN})
 
-	def authSuccess(self):
-		r = XMLNode("success", {"xmlns": "urn:ietf:params:xml:ns:xmpp-sasl"})
-		self.send(r.toString())
-
-		self.user = self._user
-		self.xml.restart()
-
-	def authReject(self):
-		r = XMLNode("reject", {"xmlns": "urn:ietf:params:xml:ns:xmpp-sasl"})
-		r.nodes.append(XMLNode(name = "not-authorized"))
-		self.sock.send(r.toString())
-		self.sock.send("</%s:stream>" % self.namespace)
-
-	def xmppIQ(self, xml):
-		if len(xml.nodes) == 0:
-			# TODO: Invalid IQ
-			pass
-		else:
-			n = xml.nodes[0]
-			if self.iqs.has_key(n.name):
-				self.iqs[n.name].processIQ(xml, self)
+	def _send_contact_list(self):
+		print "Sending contact list..."
+		cl = self._clist
+		r = []
+		for c in cl[1]:
+			addr = c['address']
+			nick = c['nick']
+			if c['server_flags'] & mrim.CONTACT_INTFLAG_NOT_AUTHORIZED:
+				subscr = 'from'
+			elif c['flags'] & mrim.STATUS_UNDETERMINATED:
+				subscr = 'to'
 			else:
-				self.iqs[''].processIQ(xml, self)
+				subscr = "both"
 
-class MRIMProxy(ProtocolProxy):
-	def __init__(self, jclient):
-		super(MRIMProxy, self).__init__(jclient)
-		self.mrim = MailRuAgent()
-		self.mrim.add_handler('auth_success', self.h_auth_success)
-		self.mrim.add_handler('auth_reject', self.h_auth_reject)
+			if c['group'] < len(cl[0]):
+				grp = cl[0][c['group']]['name']
+			else:
+				grp = None
 
-	def auth(self, user, passwd):
-		self.mrim.connect("%s@%s" % (user, self.xmpp.from_), passwd)
-		self.xmpp.authSuccess()
+			r.append( [addr, nick, subscr, grp] )
 
-	def h_auth_success(self):
-		self.xmpp.authSuccess()
-
-	def h_auth_reject(self, reason):
-		self.xmpp.authReject()
+		self.server.sendRoster(self._creq_id, r)
+		for c in cl[1]:
+			self.h_user_status(c['address'], c['status'])
 
 if __name__ == '__main__':
-	S = eserver.EventServer( ('localhost', 5222), Jabber2MRIM )
+	J = eserver.EventServer(('localhost', 5222), JabberServer, [MRIMGW])
 	try:
-		S.start()
+		J.start()
 	except:
-		S.stop()
+		print_exc()
+		J.stop()
 

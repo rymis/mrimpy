@@ -27,7 +27,8 @@ from traceback import print_exc
 #	log = syslog.syslog
 #except:
 def log(msg):
-	print "[MRIM] %s" % msg
+	import sys
+	print >>sys.stderr, "[MRIM] %s" % msg
 
 class MRIMError(Exception):
 	pass
@@ -602,6 +603,7 @@ class MailRuAgent(object):
 		self._buf = ""
 		self.autoreconnect = True
 		self.state = 0
+		self.last_ping = time.time()
 
 		if not no_load_plugins:
 			import mrim_plugins
@@ -643,10 +645,7 @@ class MailRuAgent(object):
 			raise MRIMError, "Duplicate method definition: %s" % name
 		self.methods[name] = func
 
-	def __getattr__(self, name):
-		return self.methods[name]
-
-	def connect(self, user, password, server = 'mrim.mail.ru', port = 2042, status = STATUS_ONLINE):
+	def connect(self, server = 'mrim.mail.ru', port = 2042):
 		" Connect to mail.ru server "
 		# Get IP:Port from mail.ru server:
 		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
@@ -667,6 +666,7 @@ class MailRuAgent(object):
 
 		# Send hello:
 		log('Sending hello...')
+		
 		msg = MRIMPacket(msg = MRIM_CS_HELLO)
 		msg.seq = self.seq
 		msg.send(self)
@@ -674,8 +674,6 @@ class MailRuAgent(object):
 
 	def login(self, user, password, status = STATUS_ONLINE):
 		" Login to server "
-		if self.state != SESSION_OPENED:
-			raise MRIMError, "Invalid session state"
 		# Send login and password:
 		l = MRIMData( ('login', 'LPS', 'password', 'LPS', 'status', 'UL', 'description', 'LPS') )
 		l.data['login'] = user
@@ -688,12 +686,6 @@ class MailRuAgent(object):
 		msg.seq = self.seq
 		msg.data = l.encode()
 		msg.send(self)
-
-		# And receive answere:
-		log('Receiving answere...')
-		msg = MRIMPacket()
-		msg.recv(self.sock)
-
 		self.address = user
 
 	def send_msg(self, msg, seq = None):
@@ -715,12 +707,13 @@ class MailRuAgent(object):
 			self.call_action('connection_closed', [])
 
 	def send(self, data):
+		" Append data to queue "
 		self._queue.append(data)
 		return len(data)
 
 	def getsockname(self):
 		" Socket interface functions "
-		return sock.getsockname()
+		return self.sock.getsockname()
 
 	def _send(self):
 		if len(self._queue) == 0:
@@ -753,18 +746,22 @@ class MailRuAgent(object):
 		if len(w) > 0:
 			self._send()
 		if len(r) > 0:
-			buf = r.recv(1024)
-			if len(buf) == 0:
-				# Connection closed
-				self.close()
-			self.dataReceived(buf)
+			self._read()
+
+	def _read(self):
+		buf = self.sock.recv(1024)
+		if len(buf) == 0:
+			# Connection closed
+			self.close()
+			self.call_action('connection_closed', [])
+		self.dataReceived(buf)
 
 
 	def _processBuf(self):
 		while True:
 			msg = MRIMPacket()
 			if len(self._buf) >= msg.LEN:
-				msg.decode(msg, self._buf[:msg.LEN])
+				msg.decode(self._buf[:msg.LEN])
 				if msg.dlen + msg.LEN <= len(self._buf):
 					msg.data = self._buf[msg.LEN: msg.LEN + msg.dlen]
 					self._buf = self._buf[msg.LEN + msg.dlen:]
@@ -796,8 +793,8 @@ class MailRuAgent(object):
 		seq = self.seq = self.seq + 1
 		seq -= 1
 		msg.seq = seq
-		l = get_mrim_data(MRIM_CS_CHANGE_STATUS)
-		l['status'] = status
+		l = MRIMData(('status', 'UL'))
+		l.data['status'] = status
 		msg.data = l.encode()
 
 		msg.send(self)
@@ -833,6 +830,19 @@ class MailRuAgent(object):
 			return self.call_action("contact_list_message", [msg])
 		else:
 			return self.call_action("message", [msg])
+
+	def pollRegister(self, poll):
+		if not self.sock:
+			return
+		if len(self._queue) > 0:
+			w_f = self._send
+		else:
+			w_f = None
+
+		poll.register(self.sock, read_f = self._read, write_f = w_f)
+
+	def fileno(self):
+		return self.sock.fileno()
 
 if __name__ == '__main__':
 	d = MRIMData(('name', 'LPS', 'value', 'UL'))
