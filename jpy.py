@@ -27,6 +27,19 @@ class UserList(object):
 
 		return False
 
+	def getRoster(self, user):
+		r = []
+		for u in self.users:
+			if u[0] != user:
+				r.append( ("%s@%s" % (u[0], self.server.from_), u[0], 'both', 'GROUP') )
+		return r
+
+	def setOnline(self, user, online):
+		for u in self.users:
+			if u[0] == user:
+				u[2] = online
+
+
 __users = None
 def GetUserList():
 	global __users
@@ -57,11 +70,7 @@ class SimpleJServer(ProtocolProxy):
 		self.server.sendVCard(id, info)
 
 	def rosterRequest(self, id):
-		r = []
-		for u in self.users.users:
-			if u[0] != self.server.user:
-				r.append( ("%s@%s" % (u[0], self.server.from_), u[0], 'both', 'GROUP') )
-
+		r = [u for u in self.users.getRoster(self.server.user)]
 		self.server.sendRoster(id, r)
 
 		for u in self.users.users:
@@ -76,13 +85,23 @@ class SimpleJServer(ProtocolProxy):
 			self.online = True
 		else:
 			self.online = False
-		for u in self.users.users:
-			if u[0] == self.server.user:
-				u[2] = self.online
+
+		self.users.setOnline(self.server.user, self.online)
 
 		for c in self.server.server.clients:
 			if c != self.server:
 				c.sendPresence(self.user, type)
+
+	def message(self, msg):
+		print msg.toString()
+		msg_to = msg.attrs['to']
+		msg.attrs['from'] = self.user
+		del msg.attrs['to']
+
+		# Searching for msg_to session:
+		for c in self.server.server.clients:
+			if c.proxy.user == msg_to:
+				c.send(msg.toString(pack=True))
 
 if __name__ == '__main__':
 	J = eserver.EventServer(('localhost', 5222), JabberServer, [SimpleJServer])

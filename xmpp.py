@@ -41,7 +41,9 @@ class ProtocolProxy(object):
 		" set client presence to type "
 		pass
 
-	" Helper methods: "
+	def message(self, msg):
+		" message received as XML "
+		pass
 
 class JabberServer(eserver.Protocol):
 	def __init__(self, sock, server, Proxy):
@@ -55,7 +57,7 @@ class JabberServer(eserver.Protocol):
 		self.id = str(random.randint(100000000, 999999999))
 		self.from_ = None
 
-		self.h_xmpp = { "auth": [self.xmppAuth], "iq": [self.xmppIQ], 'presence': [self.xmppPresence] }
+		self.h_xmpp = { "auth": [self.xmppAuth], "iq": [self.xmppIQ], 'presence': [self.xmppPresence], 'message': [self.xmppMessage] }
 
 		self.proxy = Proxy()
 		self.proxy.server = self
@@ -194,6 +196,9 @@ class JabberServer(eserver.Protocol):
 				show = 'online'
 
 		self.proxy.presence(show, xml)
+
+	def xmppMessage(self, xml):
+		self.proxy.message(xml)
 
 	def sendVCard(self, id, info):
 		" Send vCard to client. Info is map with params "
