@@ -15,7 +15,7 @@ class UserInfo(MRIMPlugin):
 
 	def message_received(self, msg):
 		ui = self._user_info_decode(msg.data)
-		self.mrim.call_action('user_info', (msg, ui))
+		self.mrim.call_action('user_info', [ui])
 
 	def _user_info_decode(self, d):
 		ui = {}
@@ -175,9 +175,11 @@ class HelloACK(MRIMPlugin):
 		D = MRIMData( ('ping_period', 'UL') )
 		D.decode(msg.data)
 		self.mrim.ping_period = D.data['ping_period']
-		log('PING period is set to %d' % self.ping_period)
+		log('PING period is set to %d' % self.mrim.ping_period)
 
 		self.mrim.state = SESSION_OPENED
+
+		self.mrim.call_action('hello_ack', [])
 
 class LoginACK(MRIMPlugin):
 	MESSAGE = MRIM_LOGIN_ACK

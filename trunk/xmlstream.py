@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 """
 Simple XML stream parsing library
@@ -23,7 +24,7 @@ _comment = re.compile('\\s*<!--.*-->\\s*', re.M | re.S)
 
 def _utfstring(s):
 	if isinstance(s, unicode):
-		s.encode('utf-8', 'replace')
+		return s.encode('utf-8', 'replace')
 	return s
 
 class XMLError(Exception):
@@ -70,7 +71,7 @@ print xml.toString()
 			S.write(margin)
 		S.write('<%s' % _utfstring(self.name))
 		for a in self.attrs:
-			S.write(' %s="%s"' % (_utfstring(a), self._quoteattr(self.attrs[a])))
+			S.write(' %s="%s"' % (_utfstring(a), _utfstring(self._quoteattr(self.attrs[a]))))
 		if len(self.nodes) == 0:
 			if not noclose:
 				S.write('/>')
