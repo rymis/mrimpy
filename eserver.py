@@ -125,7 +125,7 @@ class Poll(object):
 					print_exc()
 
 				try:
-					if r[1] & select.POLLERR:
+					if r[1] & select.POLLERR and peer[3]:
 						if peer[4]:
 							peer[3](*peer[4])
 						else:
@@ -169,7 +169,7 @@ class EventServer(object):
 				for cl in self.clients:
 					cl.idle()
 
-		self.sock.close()
+		self.stop()
 
 	def _write_cl(self, cl):
 		d = cl.queue[0]
@@ -196,7 +196,10 @@ class EventServer(object):
 
 	def stop(self):
 		" Stop server "
-		self._stop = True
+		print "Stopping server:"
+		while len(self.clients) > 0:
+			self.clients[0].close()
+		self.sock.close()
 
 	def removeClient(self, cl):
 		" Remove client from list of clients "
