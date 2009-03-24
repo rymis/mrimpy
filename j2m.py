@@ -21,6 +21,7 @@ class MRIMGW(ProtocolProxy):
 		self.mrim.add_handler('login_success', self.h_login_success)
 		self.mrim.add_handler('login_reject', self.h_login_reject)
 		self.mrim.add_handler('user_info', self.h_user_info)
+		self.mrim.add_handler('connection_closed', self.h_connection_closed)
 
 		self._clist = None
 		self._creq_id = None
@@ -29,6 +30,7 @@ class MRIMGW(ProtocolProxy):
 
 	def auth(self, user, password):
 		# Connect to server:
+		# TODO: async connect with threading - connect can block server
 		self.mrim.connect()
 		self._auth = (user, password)
 
@@ -119,8 +121,12 @@ class MRIMGW(ProtocolProxy):
 		if self._vreq_id:
 			self._send_vcard()
 
+	def h_connection_closed(self):
+		self.server.close()
+
 	def _send_vcard(self):
-		self.server.sendVCard(self._vreq_id, {'FN': self._FN})
+		d = self.server.from_.split('.')[0]
+		self.server.sendVCard(self._vreq_id, {'FN': self._FN, "URL": "http://http://r.mail.ru/cln3587/my.mail.ru/%s/%s/" % (d, self.server.user)})
 
 	def _send_contact_list(self):
 		print "Sending contact list..."
@@ -149,7 +155,7 @@ class MRIMGW(ProtocolProxy):
 
 if __name__ == '__main__':
 	J = eserver.EventServer(('localhost', 5222), JabberServer, [MRIMGW])
-	J.idle_timeout = 1
+	J.poll_timeout = 1000
 	try:
 		J.start()
 	except:

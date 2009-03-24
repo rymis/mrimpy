@@ -45,6 +45,10 @@ class ProtocolProxy(object):
 		" message received as XML "
 		pass
 
+	def idle(self):
+		" Idle function"
+		pass
+
 class JabberServer(eserver.Protocol):
 	def __init__(self, sock, server, Proxy):
 		super(JabberServer, self).__init__(sock, server)
@@ -242,4 +246,7 @@ class JabberServer(eserver.Protocol):
 		r['status'].nodes.append(msg)
 
 		self.send(r.toString(pack=True))
+
+	def idle(self):
+		self.proxy.idle()
 
