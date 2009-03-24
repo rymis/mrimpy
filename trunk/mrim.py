@@ -750,6 +750,8 @@ class MailRuAgent(object):
 
 	def ping(self):
 		" Send ping if need "
+		if not self.sock:
+			return
 		t = time.time()
 		if abs(t - self.last_ping) > self.ping_period:
 			self._ping()
@@ -760,7 +762,6 @@ class MailRuAgent(object):
 		if len(buf) == 0:
 			# Connection closed
 			self.close()
-			self.call_action('connection_closed', [])
 		self.dataReceived(buf)
 
 

@@ -167,7 +167,11 @@ class EventServer(object):
 
 			if self.poll_timeout > 0:
 				for cl in self.clients:
-					cl.idle()
+					try:
+						cl.idle()
+					except:
+						print >>sys.stderr, "Idle function failed:"
+						print_exc()
 
 		self.stop()
 
