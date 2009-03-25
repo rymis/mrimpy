@@ -1,0 +1,14 @@
+J2M (Jabber2MRIM gateway)
+	It is the jabber server, that translates XMPP protocol to MailRu Agent. The main goal of this project
+is made available MailRu Agent protocol for GNU/Linux, FreeBSD and another operating systems not supported
+by official software. At this moment you can use Jabber client software and it will work.
+
+	You can use transport, for example mrim.jabber.ru, but your password will became to third side peaple.
+
+Client software parameters.
+	In general, you need to overide server parameter by setting it to localhost:5222. In PSI and Gajim you
+must use "Connection" tab in account setup. In addition you must set "Allow plain passwords" for all connections.
+
+Server.
+	Run j2m_gw. It is all :) You can use start-stop-daemon to daemonize it.
+

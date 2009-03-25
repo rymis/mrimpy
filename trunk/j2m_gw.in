@@ -8,7 +8,7 @@ die()
 	exit 1
 }
 
-PREFIX="@PREFIX@"
+PREFIX="@prefix@"
 
 case "$PREFIX" in
 	@*)
@@ -37,5 +37,6 @@ if [ "x$PYTHON" = "x" ]; then
 	PYTHON=python
 fi
 
-exec "$PYTHON" "$SRC_PATH/j2m.py" $@
+cd "$SRC_PATH"
+exec "$PYTHON" j2m.py $@
 
