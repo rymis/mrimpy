@@ -4,7 +4,7 @@
 Installation makefile generator
 """
 
-sources = [ 'src/xmpp.py' ]
+sources = [ 'src/xmpp.py', 'src/xmpp_plugins.py', 'src/xmlstream.py', 'src/mrim.py', 'src/mrim_plugins.py', 'src/j2m.py', 'src/eserver.py' ]
 extras = ['LICENCE', 'README']
 bins = ['j2m_gw']
 
@@ -42,11 +42,11 @@ for f in bins:
 
 m.write("uninstall:\n")
 for f in sources:
-	m.write("\t@rm -f $(SOURCES_DIR)/%s\n" % basename(f))
+	m.write("\trm -f $(SOURCES_DIR)/%s\n" % basename(f))
 for f in extras:
-	m.write("\t@rm -f $(EXTRAS_DIR)/%s\n" % basename(f))
+	m.write("\trm -f $(EXTRAS_DIR)/%s\n" % basename(f))
 for f in bins:
-	m.write("\t@rm -f $(BIN_DIR)/%s\n" % basename(f))
+	m.write("\trm -f $(BIN_DIR)/%s\n" % basename(f))
 
 m.write("\n\n")
 m.write("create_install_dirs:\n")
