@@ -1,0 +1,41 @@
+#!/bin/sh
+
+# Run script for Jabber2MRIM gateway.
+
+die()
+{
+	echo "*" 1>&2
+	exit 1
+}
+
+PREFIX="@PREFIX@"
+
+case "$PREFIX" in
+	@*)
+		# Determine our run path:
+		MYPATH=`dirname $0`
+		MYPATH=`(cd "$MYPATH"; pwd)`
+
+		# Trying to find sources:
+		if [ -f "$MYPATH/src/j2m.py" ]; then
+			SRC_PATH="$MYPATH/src"
+		elif [ -f "$MYPATH/../share/@PACKAGE_NAME@/src/j2m.py" ]; then
+			SRC_PATH="$MYPATH/../share/@PACKAGE_NAME@/src"
+		else
+			die "Can not find installation directory"
+		fi
+	;;
+	*) SRC_PATH="$PREFIX/share/@PACKAGE_NAME@/src/" ;;
+esac
+
+# Searching for Python:
+PYTHON=`which python2`
+if [ "x$PYTHON" = "x" ]; then
+	PYTHON=`which python`
+fi
+if [ "x$PYTHON" = "x" ]; then
+	PYTHON=python
+fi
+
+exec "$PYTHON" "$SRC_PATH/j2m.py" $@
+
