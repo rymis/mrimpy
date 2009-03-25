@@ -45,6 +45,14 @@ class ProtocolProxy(object):
 		" message received as XML "
 		pass
 
+	def subscribe(self, to, xml):
+		" Subscribe to user status "
+		raise XMPPError, "Not supported"
+
+	def unsubscribe(self, to, xml):
+		" Unsubscribe from user "
+		raise XMPPError, "Not supported"
+
 	def idle(self):
 		" Idle function"
 		pass
@@ -192,14 +200,22 @@ class JabberServer(eserver.Protocol):
 
 	def xmppPresence(self, xml):
 		if xml.attrs.has_key('type'):
-			show = xml.attrs['type']
+			type = xml.attrs['type']
 		else:
+			type = 'online'
+
+		if type == 'online' or type == 'unavailable':
 			if xml['show']:
 				show = xml['show'].nodes[0]
 			else:
 				show = 'online'
-
-		self.proxy.presence(show, xml)
+			self.proxy.presence(show, xml)
+		elif type == 'subscribed':
+			to = xml.attrs['to']
+			self.proxy.subscribe(to, xml)
+		elif type == 'unsubscribed':
+			to = xml.attrs['to']
+			self.proxy.unsubscribe(to, xml)
 
 	def xmppMessage(self, xml):
 		self.proxy.message(xml)
@@ -246,6 +262,21 @@ class JabberServer(eserver.Protocol):
 		r['status'].nodes.append(msg)
 
 		self.send(r.toString(pack=True))
+
+	def sendSubscribe(self, user):
+		" Send simple subscription presence to user "
+		r = XMLNode('presence', {'from': user, 'type': 'subscribed'})
+		self.send(r.toString(pack=True))
+
+	def sendUnsubscribe(self, user):
+		" Remove subscription from user: "
+		r = XMLNode('presence', {'from': user, 'type': 'unsubscribed'})
+		self.send(r.toString(pack=True))
+
+	def sendSubscriptionRequest(self, from_):
+		" Send subscription request to client "
+		r = XMLNode('presence', { 'type': 'subscribe', 'from': from_ })
+		self.send(r.toString(pack = True))
 
 	def idle(self):
 		self.proxy.idle()
