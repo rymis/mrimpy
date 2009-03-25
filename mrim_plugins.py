@@ -124,23 +124,6 @@ class MessageACK(MRIMPlugin):
 
 		self.mrim.process_message(M)
 	
-
-
-class RTFFormat(MRIMPlugin):
-	def register(self, mrim):
-		self.mrim = mrim
-		mrim.add_method('rtf2text', self.rtf2text)
-
-	def rtf_decode(self, rtf):
-		msg = zlib.decompress(base64.b64decode(rtf))
-		D = MRIMData( ('lpscnt', 'UL', 'rtf', 'LPS', 'background', 'LPS') )
-		d, rtf_f = D.decode(msg)
-
-		return rtf_f['rtf']
-
-	def rtf2text(self, rtf):
-		return rtf_decode(rtf)
-
 class MessageStatus(MRIMPlugin):
 	MESSAGE = MRIM_CS_MESSAGE_STATUS
 
@@ -200,6 +183,19 @@ class LoginReject(MRIMPlugin):
 		self.mrim.call_action("login_reject", [D.data['reason']])
 		self.mrim.close()
 
+class Authorized(MRIMPlugin):
+	MESSAGE = MRIM_CS_AUTHORIZE_ACK
 
-PLUGINS_ALL = [ UserInfo, ContactList2, OfflineMessage, RTFFormat, MessageStatus, MessageACK, ConnectionParams, UserStatus, HelloACK, LoginACK, LoginReject ]
+	def message_received(self, msg):
+		D = MRIMData( ('user', 'LPS') )
+		D.decode(msg.data)
+		user = D.data['user']
+		log("Authorization from user: %s" % user)
+
+		self.mrim.call_action('authorized', [user])
+
+
+PLUGINS_ALL = [ UserInfo, ContactList2, OfflineMessage, MessageStatus,
+		MessageACK, ConnectionParams, UserStatus, HelloACK,
+		LoginACK, LoginReject, Authorized ]
 

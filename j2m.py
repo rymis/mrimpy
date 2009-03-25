@@ -22,6 +22,8 @@ class MRIMGW(ProtocolProxy):
 		self.mrim.add_handler('login_reject', self.h_login_reject)
 		self.mrim.add_handler('user_info', self.h_user_info)
 		self.mrim.add_handler('connection_closed', self.h_connection_closed)
+		self.mrim.add_handler('authorization_request', self.h_authorization_request)
+		self.mrim.add_handler('authorized', self.h_authorized)
 
 		self._clist = None
 		self._creq_id = None
@@ -63,6 +65,17 @@ class MRIMGW(ProtocolProxy):
 
 		self.mrim.send_message(body, msg_to)
 
+	def subscribe(self, to, xml):
+		D = mrim.MRIMData( ('user', 'LPS') )
+		D.data['user'] = to
+		m = mrim.MRIMPacket(msg = mrim.MRIM_CS_AUTHORIZE)
+		m.data = D.encode()
+
+		self.mrim.send_msg(m)
+
+	def unsubscribe(self, to, xml):
+		# TODO: do something...
+		pass
 
 	def pollRegister(self, poll):
 		self.mrim.pollRegister(poll)
@@ -152,6 +165,12 @@ class MRIMGW(ProtocolProxy):
 		self.server.sendRoster(self._creq_id, r)
 		for c in cl[1]:
 			self.h_user_status(c['address'], c['status'])
+
+	def h_authorization_request(self, msg):
+		self.server.sendSubscriptionRequest(msg.address)
+
+	def h_authorized(self, user):
+		self.server.sendSubscribe(user)
 
 if __name__ == '__main__':
 	J = eserver.EventServer(('localhost', 5222), JabberServer, [MRIMGW])
