@@ -1,5 +1,21 @@
 #!/usr/bin/env python
 
+__licence__ = """
+Copyright (C) 2009 Mikhail Ryzhov <rymiser@gmail.com>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>
+"""
+
 # Main module of Jabber2MRIM gateway.
 
 import eserver
@@ -29,7 +45,7 @@ class ProtocolProxy(object):
 		" Register sockets in poll "
 		pass
 
-	def vCardRequest(self, id):
+	def vCardRequest(self, id, to):
 		" Return vCard of client, using sendVCard method "
 		raise XMPPError, "Not supported"
 
@@ -220,13 +236,18 @@ class JabberServer(eserver.Protocol):
 	def xmppMessage(self, xml):
 		self.proxy.message(xml)
 
-	def sendVCard(self, id, info):
+	def sendVCard(self, id, info, user = None):
 		" Send vCard to client. Info is map with params "
 		r = XMLNode('iq', { 'to': self.resource, 'id': id, 'type': 'result' })
+		if user:
+			r.attrs['from'] = user
 		vcard = XMLNode('vCard', { 'xmlns':"vcard-temp" })
 		for n in info:
 			node = XMLNode(n)
-			node.nodes.append(info[n])
+			if isinstance(info[n], list):
+				node.nodes.extend(info[n])
+			else:
+				node.nodes.append(info[n])
 			vcard.nodes.append(node)
 		r.nodes.append(vcard)
 

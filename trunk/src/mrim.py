@@ -1,6 +1,22 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+__licence__ = """
+Copyright (C) 2009 Mikhail Ryzhov <rymiser@gmail.com>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>
+"""
+
 """
 	Mail.ru agent protocol implementation with Python
 """
@@ -19,6 +35,7 @@ import base64
 import zlib
 import email
 from traceback import print_exc
+import urllib
 
 #try:
 #	import syslog
@@ -158,6 +175,7 @@ For example:
 		UIDL - unique message ID (8 bytes)
 		LPS - string encoded as length:data
 		LPSO - optional string
+		LPSA - array of LPS
 	"""
 	def __init__(self, fmt = None):
 		self.fmt = []
@@ -223,11 +241,13 @@ For example:
 			if len(val) != 8:
 				raise MRIMError, "Invalid parameter passed to UIDL"
 			return val
-		elif type == 'LPSO':
+		elif type == 'LPSO': # Optional LPS
 			if not val:
 				return ""
 			else:
 				return self.encode_type('LPS', val)
+		elif type == 'LPSA': # Array of LPS
+			return "".join([self.encode_type('LPS', lps) for lps in val])
 		else:
 			raise MRIMError, "Unknon type: %s" % type
 
@@ -243,6 +263,15 @@ For example:
 				return self.decode_type('LPS', data)
 			else:
 				return (data, "")
+		elif type == 'LPSA':
+			r = []
+			while len(data) > 0:
+				try:
+					data, val = self.decode_type('LPS', data)
+					r.append(val)
+				except:
+					break
+			return (data, r)
 		elif type == 'UIDL':
 			return (data[8:], data[:8])
 		else:
@@ -555,9 +584,10 @@ class ContactList(object):
 		self.mrim.call_action('contact_list_updated', (self.groups, self.contacts))
 
 	def list_contacts(self, group = None):
-		for c in self.contacts:
-			if not group or c['group'] == group:
-				yield c
+		return [c for c in self.contacts if not group or c['group'] == group]
+		# for c in self.contacts:
+		# 	if not group or c['group'] == group:
+		# 		yield c
 
 	def add_group(self, group_name):
 		" Add new group to contact list "
@@ -574,6 +604,7 @@ class ContactList(object):
 		msg.data = D.encode()
 
 		seq = self.mrim.send_msg(msg)
+
 		self._operations.append([seq, 'AC', (group, user, user), 'Add user %s' % user])
 
 	def modify_contact(self, user, group = None, contact = None, name = None):
@@ -787,7 +818,6 @@ class MailRuAgent(object):
 
 
 	def _ping(self):
-		log("PING")
 		msg = MRIMPacket(msg = MRIM_CS_PING)
 		seq = self.seq = self.seq + 1
 		seq -= 1
@@ -827,6 +857,25 @@ class MailRuAgent(object):
 
 		return M.seq
 
+	def request_user_info(self, user):
+		" Send user-info-request "
+		D = MRIMData( ('field1', 'UL', 'user', 'LPS', 'field2', 'UL', 'domain', 'LPS') )
+		(name, domain) = user.split('@')
+		l = domain.rfind('/')
+		if l > 0:
+			domain = domain[:l]
+
+		D.data['field1'] = MRIM_CS_WP_REQUEST_PARAM_USER
+		D.data['field2'] = MRIM_CS_WP_REQUEST_PARAM_DOMAIN
+		D.data['user'] = name
+		D.data['domain'] = domain
+		print name, domain
+
+		p = MRIMPacket(msg = MRIM_CS_WP_REQUEST)
+		p.data = D.encode()
+
+		return self.send_msg(p)
+
 	def process_message(self, msg):
 		" Check message flags and call actions "
 		if not self.call_action("raw_message", [msg]):
@@ -851,6 +900,16 @@ class MailRuAgent(object):
 
 	def fileno(self):
 		return self.sock.fileno()
+
+def load_avatar(email, domain):
+	" Loading avatar from HTTP "
+	url = "http://obraz.foto.mail.ru/%s/%s/_mrimavatarsmall" % (domain, email)
+	f = urllib.urlopen(url)
+	tp = f.info().gettype()
+	dt = f.read()
+	f.close()
+
+	return (tp, dt)
 
 if __name__ == '__main__':
 	d = MRIMData(('name', 'LPS', 'value', 'UL'))
