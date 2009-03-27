@@ -1,5 +1,21 @@
 # -*- coding: utf-8 -*-
 
+__licence__ = """
+Copyright (C) 2009 Mikhail Ryzhov <rymiser@gmail.com>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>
+"""
+
 """
 Plugins for mrim.py.
 """
@@ -194,8 +210,34 @@ class Authorized(MRIMPlugin):
 
 		self.mrim.call_action('authorized', [user])
 
+class SearchUserResult(MRIMPlugin):
+	MESSAGE = MRIM_CS_ANKETA_INFO
+
+	def message_received(self, msg):
+		D = MRIMData( ('status', 'UL') )
+		D.decode(msg.data)
+		if D.data['status'] != MRIM_ANKETA_INFO_STATUS_OK:
+			self.mrim.call_action('search_user_error', [msg.seq, D.data['status']])
+			return
+
+		D = MRIMData( ('status', 'UL', 'fields_num', 'UL', 'max_rows', 'UL', 'server_time', 'UL', 'strings', 'LPSA') )
+		D.decode(msg.data)
+		
+		strs = D.data['strings']
+		names = strs[:D.data['fields_num']]
+		vals = strs[D.data['fields_num']:]
+
+		while len(vals) > 0:
+			cv = vals[:D.data['fields_num']]
+			vals = vals[D.data['fields_num']:]
+
+			res = {}
+			for n, v in zip(names, cv):
+				res[n] = v
+			self.mrim.call_action('contact_info', [res, msg.seq])
+
 
 PLUGINS_ALL = [ UserInfo, ContactList2, OfflineMessage, MessageStatus,
 		MessageACK, ConnectionParams, UserStatus, HelloACK,
-		LoginACK, LoginReject, Authorized ]
+		LoginACK, LoginReject, Authorized, SearchUserResult ]
 

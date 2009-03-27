@@ -1,5 +1,21 @@
 #!/usr/bin/env python
 
+__licence__ = """
+Copyright (C) 2009 Mikhail Ryzhov <rymiser@gmail.com>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>
+"""
+
 import xmlstream
 from xmlstream import XMLNode
 from traceback import print_exc
@@ -92,7 +108,11 @@ class vCard(IQ):
 	def processIQ(self, xml, client):
 		if xml.attrs['type'] == 'get':
 			try:
-				client.proxy.vCardRequest(xml.attrs['id'])
+				if xml.attrs.has_key('to'):
+					to = xml.attrs['to']
+				else:
+					to = None
+				client.proxy.vCardRequest(xml.attrs['id'], to)
 			except:
 				print_exc()
 				r = self.prepareError(xml, client)

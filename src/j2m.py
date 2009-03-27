@@ -1,6 +1,22 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+__licence__ = """
+Copyright (C) 2009 Mikhail Ryzhov <rymiser@gmail.com>
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>
+"""
+
 " MailRu gateway main "
 
 from xmpp import *
@@ -24,11 +40,14 @@ class MRIMGW(ProtocolProxy):
 		self.mrim.add_handler('connection_closed', self.h_connection_closed)
 		self.mrim.add_handler('authorization_request', self.h_authorization_request)
 		self.mrim.add_handler('authorized', self.h_authorized)
+		self.mrim.add_handler('search_user_error', self.h_search_user_error)
+		self.mrim.add_handler('contact_info', self.h_contact_info)
 
 		self._clist = None
 		self._creq_id = None
 		self._vreq_id = None
 		self._FN = None
+		self._vCard_Requests = []
 
 	def auth(self, user, password):
 		# Connect to server:
@@ -36,10 +55,14 @@ class MRIMGW(ProtocolProxy):
 		self.mrim.connect()
 		self._auth = (user, password)
 
-	def vCardRequest(self, id):
-		self._vreq_id = id
-		if self._FN:
-			self._send_vcard()
+	def vCardRequest(self, id, to):
+		if not to or to.split('/')[0] == self.mrim_user:
+			self._vreq_id = id
+			if self._FN:
+				self._send_vcard()
+		else:
+			seq = self.mrim.request_user_info(to)
+			self._vCard_Requests.append( (id, seq, to) )
 
 	def rosterRequest(self, id):
 		self._creq_id = id
@@ -171,6 +194,85 @@ class MRIMGW(ProtocolProxy):
 
 	def h_authorized(self, user):
 		self.server.sendSubscribe(user)
+
+	def h_search_user_error(self, seq, status):
+		print "Search user error."
+		for q in self._vCard_Requests:
+			if q[1] == seq:
+				id = q[0]
+				user = q[2]
+				self._vCard_Requests.remove(q)
+				r = XMLNode('iq', { 'type': 'error', 'to': self.server.resource, 'from': user, 'id': id})
+				r.nodes.append(XMLNode('vCard'))
+				r.nodes.append(XMLNode('error'))
+
+				if status == mrim.MRIM_ANKETA_INFO_STATUS_NOUSER:
+					r['error'].nodes.append('user-not-found')
+					r['error'].nodes.append(XMLNode('text', { 'xmlns': 'urn:ietf:params:xml:ns:xmpp-stanzas' }))
+					r['error']['text'].nodes.append("User not found")
+				elif status == mrim.MRIM_ANKETA_INFO_STATUS_RATELIMERR:
+					r['error'].nodes.append('too-much-requests')
+					r['error'].nodes.append(XMLNode('text', { 'xmlns': 'urn:ietf:params:xml:ns:xmpp-stanzas' }))
+					r['error']['text'].nodes.append("Too much requests")
+				else:
+					r['error'].nodes.append('internal-server-error')
+
+				self.server.send(r.toString(pack = True))
+				return
+
+	def h_contact_info(self, ui, seq):
+		for q in self._vCard_Requests:
+			if q[1] == seq:
+				id = q[0]
+				user = q[2]
+				self._vCard_Requests.remove(q)
+
+				try:
+					email, domain = user.split('@')
+					l = domain.rfind('.')
+					if l > 0:
+						domain = domain[:l]
+					email = email.decode('utf-8', 'replace')
+					domain = domain.decode('utf-8', 'replace')
+				except:
+					email = u""
+					domain = u""
+				vc = {}
+				desc = u"""
+Мой Мир: http://http://r.mail.ru/cln3587/my.mail.ru/%(domain)s/%(email_name)s/
+Фото: http://r.mail.ru/cln3565/foto.mail.ru/%(domain)s/%(email_name)s/
+Видео: http://r.mail.ru/cln3567/video.mail.ru/%(domain)s/%(email_name)s/
+Блоги: http://r.mail.ru/cln3566/blogs.mail.ru/%(domain)s/%(email_name)s/
+""" % {'domain': domain, 'email_name': email}
+				for a in ui:
+					if a.lower() == 'birthday':
+						vc['BDAY'] = ui[a].decode(mrim.MRIM_ENCODING, 'replace')
+					elif a.lower() == 'nickname':
+						vc['NICKNAME'] = ui[a].decode(mrim.MRIM_ENCODING, 'replace')
+					elif a.lower() == 'location':
+						desc += u"Расположение: %s\n" % ui[a].decode(mrim.MRIM_ENCODING, 'replace')
+					elif a.lower() == 'phone':
+						x = XMLNode('NUMBER')
+						x.nodes.append(ui[a].decode(mrim.MRIM_ENCODING, 'replace'))
+						vc['TEL'] = x
+
+				if len(email) > 0:
+					try:
+						tp, dt = mrim.load_avatar(email, domain)
+						xd = XMLNode('BINVAL')
+						xd.nodes.append(base64.b64encode(dt))
+						xt = XMLNode('TYPE')
+						xt.nodes.append(tp)
+						vc['PHOTO'] = [xt, xd]
+					except:
+						print_exc()
+						pass
+
+				vc['DESC'] = desc
+
+				self.server.sendVCard(id, vc, user)
+
+				return
 
 if __name__ == '__main__':
 	J = eserver.EventServer(('localhost', 5222), JabberServer, [MRIMGW])
