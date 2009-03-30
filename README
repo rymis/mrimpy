@@ -10,5 +10,5 @@ Client software parameters.
 must use "Connection" tab in account setup. In addition you must set "Allow plain passwords" for all connections.
 
 Server.
-	Run j2m_gw. It is all :) You can use start-stop-daemon to daemonize it.
+	Run j2m_gw. It is all :) You can use switches, specified in j2m_gw --help
 
