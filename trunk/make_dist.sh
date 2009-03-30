@@ -23,6 +23,7 @@ mv mrimpy-read-only mrimpy-$VERSION
 find mrimpy-$VERSION -name ".svn" -exec rm -rf {} \;
 rm -rf mrimpy-$VERSION/data
 rm -rf mrimpy-$VERSION/glade
+rm -rf mrimpy-$VERSION/mail.ru
 tar cjvf mrimpy-$VERSION.tbz mrimpy-$VERSION
 
 echo -n "Do you wan't to upload this file? [yn]"
