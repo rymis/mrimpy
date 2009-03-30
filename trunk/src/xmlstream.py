@@ -227,6 +227,8 @@ class XMLInputStream(object):
 				if m:
 					self._stream = self.buf[:m.end(0)]
 					self.buf = self.buf[m.end(0):]
+					if not self._preambule: # <?xml?> skipped
+						self._preambule = ""
 					self._stream_start(m)
 
 			cont = (l != len(self.buf))
