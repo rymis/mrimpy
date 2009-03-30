@@ -286,8 +286,6 @@ class Daemon(object):
 			sigs = { "SIGUSR1": self._sigusr1, "SIGTERM": self._sigterm }
 			for n in sigs:
 				if hasattr(signal, n):
-					print n
-					print getattr(signal, n)
 					signal.signal(getattr(signal, n), sigs[n])
 
 			# Fork:
@@ -312,10 +310,10 @@ class Daemon(object):
 
 			if self.chuid:
 				try:
-					pid = int(self.chuid)
+					uid = int(self.chuid)
 				except:
-					pid = pwd.getpwname(self.chuid)[2]
-				os.setpid(pid)
+					uid = pwd.getpwnam(self.chuid)[2]
+				os.setuid(uid)
 
 	def _sigusr1(self, sig, frame):
 		self.h_restart()

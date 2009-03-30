@@ -22,6 +22,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 from xmpp import *
 import mrim
 import eserver
+from optparse import OptionParser
+import sys
 
 class MRIMGW(ProtocolProxy):
 	def __init__(self):
@@ -274,9 +276,31 @@ class MRIMGW(ProtocolProxy):
 
 				return
 
+class MyDaemon(eserver.Daemon):
+	def h_stop(self):
+		self.mrim.stop()
+
+	def h_restart(self):
+		self.mrim.stop()
+
 if __name__ == '__main__':
-	J = eserver.EventServer(('localhost', 5222), JabberServer, [MRIMGW])
+	p = OptionParser(usage = "Usage: %s [args]" % sys.argv[0])
+	p.add_option("-l", "--log-file", action = "store", type = "string", dest = "log_file", default = None, help = "set file for logging")
+	p.add_option("-r", "--pid-file", action = "store", type = "string", dest = "pid_file", default = None, help = "write pid file")
+	p.add_option("-c", "--change-uid", action = "store", type = "string", dest = "chuid", default = None, help = "change uid to")
+	p.add_option("-i", "--listen", action = "store", type = "string", dest = "listen_ip", default = 'localhost', help = "listen specified IP")
+	p.add_option("-p", "--port", action = "store", type = "int", dest = "listen_port", default = 5222, help = "Listen specified port")
+	p.add_option("-n", "--no-daemonize", action = "store_true", dest = "no_daemon", default = False, help = "No fork daemon (for debug)")
+	(opts, args) = p.parse_args()
+
+	J = eserver.EventServer((opts.listen_ip, opts.listen_port), JabberServer, [MRIMGW])
 	J.poll_timeout = 1000
+
+	if not opts.no_daemon:
+		D = MyDaemon(name = "j2mgw", log_file = opts.log_file, pid_file = opts.pid_file, chuid = opts.chuid)
+		D.mrim = J
+		D.daemon()
+
 	try:
 		J.start()
 	except:
