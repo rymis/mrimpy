@@ -25,6 +25,13 @@ import select
 import socket
 from traceback import print_exc
 import sys
+import os
+import time
+try:
+	import signal
+	import pwd
+except:
+	pass
 
 class Protocol(object):
 	" Application protocol implementation "
@@ -239,4 +246,89 @@ class EventServer(object):
 			self.clients.append(cl)
 		except:
 			print_exc()
+
+class DaemonError(Exception):
+	pass
+
+class Daemon(object):
+	# TODO: NT service
+	# TODO: Signal handlers
+
+	def __init__(self, name = None, pid_file = None, log_file = None, chuid = None):
+		" Create new daemon "
+		self.log_file = None
+		self.pid_file = None
+		if name:
+			self.log_file = os.path.join('/var/log', '%s.log' % name)
+			self.pid_file = os.path.join('/var/run', '%s.pid' % name)
+		if log_file:
+			self.log_file = log_file
+		if pid_file:
+			self.pid_file = pid_file
+
+		self.chuid = chuid
+
+	def daemon(self):
+		" Daemonize application "
+		if self.log_file:
+			fd = os.open(self.log_file, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0644)
+			if fd < 0:
+				raise DaemonError, "Can not open log file"
+			os.dup2(fd, 1) # stdout
+			os.dup2(fd, 2) # stderr
+			os.close(fd)   # close original
+			os.close(0)    # close stdin
+
+		if os.name == 'nt':
+			raise DaemonError, "Not implemented for windows at time, sorry"
+		else:
+			# Set signal handlers:
+			sigs = { "SIGUSR1": self._sigusr1, "SIGTERM": self._sigterm }
+			for n in sigs:
+				if hasattr(signal, n):
+					print n
+					print getattr(signal, n)
+					signal.signal(getattr(signal, n), sigs[n])
+
+			# Fork:
+			pid = os.fork()
+			if pid < 0:
+				raise DemonError, "Fork failed"
+
+			if pid > 0:
+				# This is parent...
+				time.sleep(1.0)
+				sys.exit(0)
+
+			# Child:
+
+			# Set group leader:
+			os.setsid()
+
+			if self.pid_file:
+				f = open(self.pid_file, "wt")
+				f.write("%d" % os.getpid())
+				f.close()
+
+			if self.chuid:
+				try:
+					pid = int(self.chuid)
+				except:
+					pid = pwd.getpwname(self.chuid)[2]
+				os.setpid(pid)
+
+	def _sigusr1(self, sig, frame):
+		self.h_restart()
+
+	def _sigterm(self, sig, frame):
+		self.h_stop()
+
+	def h_restart(self):
+		" restart handler "
+		pass
+
+	def h_stop(self):
+		" stop handler "
+		sys.exit(0)
+
 
