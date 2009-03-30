@@ -1,12 +1,13 @@
 #!/bin/sh
 
-VERSION=0.2
+VERSION=0.02
 
 if [ "x$1" = "xinc" ]; then
 	# Increment version
 	vM=`echo $VERSION | sed 's/\\..*$//'`
 	vm=`echo $VERSION | sed 's/^[^\\.]*\\.//'`
 	vm=`expr $vm + 1`
+	vm=`printf "%02d" $vm`
 	echo "New version is: $vM.$vm"
 	cat "$0" | sed "s/^VERSION=.*$/VERSION=$vM.$vm/" > "$0.tmp"
 	mv "$0" "$0.back"
