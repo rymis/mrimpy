@@ -6,9 +6,9 @@ Download sources and run:
 ./configure --prefix={Your prefix}
 make install
 
-Now you can run the server using j2m_gw command. If you wan't run it as daemon use start-stop-daemon or same utils from other systems.
+Now you can run the server using j2m_gw command. If you wan't start it as another user (strongly recomended!) run: j2m_gw -c nobody.
 
-Server listens on 127.0.0.1:5222.
+Server listens on 127.0.0.1:5222 or on address that specified in --listen --port arguments.
 
 = Client configuration =
 You must set your Mail.Ru Agent ID: for example: user@mail.ru.
@@ -21,7 +21,11 @@ It is all!
 ./configure --prefix={префикс}
 make install
 
-Теперь можно запустить сервер командой j2m_gw. Для запуска демона от другого пользователя или в фоновом режиме можно использовать start-stop-daemon или аналогичные инструменты из вашей системы.
+Теперь можно запустить сервер командой j2m_gw. По умолчанию демон запустится в фоновом режиме и будет слушать адрес (127.0.0.1:5222). Вы можете изменить эти параметры указав опции командной строки:
+-c изменить UID - рекомендуется всегда использовать -c nobody
+--listen слушать адрес (например 0.0.0.0)
+--port слушать другой порт
+-n не становиться демоном (не очень понимаю зачем)
 
 = Настройка клиента =
 Укажите ваш e-mail на mail.ru в качестве JID и пропишите в параметрах подключения сервер localhost, порт 5222. Также необходимо разрешить использование Plain-Text паролей для незащищенного соединения.
