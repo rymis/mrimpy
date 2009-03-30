@@ -25,3 +25,14 @@ rm -rf mrimpy-$VERSION/data
 rm -rf mrimpy-$VERSION/glade
 tar cjvf mrimpy-$VERSION.tbz mrimpy-$VERSION
 
+echo -n "Do you wan't to upload this file? [yn]"
+read ans
+
+case $ans in
+	[yY]*)
+		# Upload to GoogleCode:
+		[ -f googlecode_upload.py ] || wget http://support.googlecode.com/svn/trunk/scripts/googlecode_upload.py
+		python googlecode_upload.py -s "MRIM to Jabber gateway, v.$VERSION" -p "mrimpy" mrimpy-$VERSION.tbz
+	;;
+esac
+
