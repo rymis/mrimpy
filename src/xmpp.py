@@ -53,6 +53,14 @@ class ProtocolProxy(object):
 		" Return roster using sendRoster method "
 		raise XMPPError, "Not supported"
 
+	def rosterUpdate(self, id, xml):
+		" Update roster item "
+		raise XMPPError, "Not supported"
+
+	def rosterRemove(self, id, jid):
+		" Remove item from roster "
+		raise XMPPError, "Not supported"
+
 	def presence(self, type, xml):
 		" set client presence to type "
 		pass
@@ -210,9 +218,13 @@ class JabberServer(eserver.Protocol):
 		else:
 			n = xml.nodes[0]
 			if self.iqs.has_key(n.name):
-				self.iqs[n.name].processIQ(xml, self)
-			else:
-				self.iqs[''].processIQ(xml, self)
+				try:
+					self.iqs[n.name].processIQ(xml, self)
+					return
+				except:
+					print_exc()
+					pass # Actually: return to user error IQ
+			self.iqs[''].processIQ(xml, self)
 
 	def xmppPresence(self, xml):
 		if xml.attrs.has_key('type'):

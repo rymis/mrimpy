@@ -102,6 +102,20 @@ class MRIMGW(ProtocolProxy):
 		# TODO: do something...
 		pass
 
+	def rosterRemove(self, id, jid):
+		" Remove contact from roster "
+		groups, contacts = self._clist
+		# Searching for user:
+		for u in self.contacts:
+			if u['email'] == jid:
+				print "Remove user: ", u
+				return
+		raise XMPPError, "user not found"
+
+	def rosterUpdate(self, id, n):
+		" Update or add roster item "
+		raise XMPPError, "Unsupported"
+
 	def pollRegister(self, poll):
 		self.mrim.pollRegister(poll)
 
@@ -112,10 +126,14 @@ class MRIMGW(ProtocolProxy):
 		(user, password) = self._auth
 		self._auth = None
 		self.mrim_user = "%s@%s" % (user, self.server.from_)
+		mrim.log('User: %s' % self.mrim_user)
+		
+		mrim.log('Logging in...')
 		self.mrim.login(self.mrim_user, password)
 
 	def h_contact_list(self, grps, cl):
 		self._clist = (grps, cl)
+		print self._clist
 		if self._creq_id:
 			self._send_contact_list()
 

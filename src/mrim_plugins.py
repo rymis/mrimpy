@@ -94,9 +94,10 @@ class ContactList2(MRIMPlugin):
 			if len(g) < 2:
 				raise MRIMError, "Invalid group format"
 
-			groups.append({'flags': g[0], 'name': g[1].decode(MRIM_ENCODING)})
+			groups.append({'flags': g[0], 'name': g[1].decode(MRIM_ENCODING), 'id': i})
 
 		cl = []
+		i = 0
 		while len(d) > 0:
 			c = []
 			for f in cfmt:
@@ -113,6 +114,8 @@ class ContactList2(MRIMPlugin):
 			contact['nick'] = c[3].decode(MRIM_ENCODING)
 			contact['server_flags'] = c[4]
 			contact['status'] = c[5]
+			contact['id'] = i + 20
+			i += 1
 
 			cl.append(contact)
 
@@ -193,9 +196,9 @@ class LoginReject(MRIMPlugin):
 	MESSAGE = MRIM_LOGIN_REJ
 
 	def message_received(self, msg):
-		log("Login Ok.")
 		D = MRIMData( ('reason', 'LPS') )
 		D.decode(msg.data)
+		log("Login failed. {%s}" % D.data['reason'])
 		self.mrim.call_action("login_reject", [D.data['reason']])
 		self.mrim.close()
 

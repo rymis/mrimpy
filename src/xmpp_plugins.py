@@ -45,13 +45,14 @@ class IQ(object):
 
 		return r
 
-	def prepareError(self, xml, client):
+	def prepareError(self, xml, client, reason = 'unknown-error'):
 		" Makes template of error result "
 		r = self.prepareResult(xml, client)
 		r.attrs['type'] = 'error'
 
 		r.nodes.extend(xml.nodes)
 		r.nodes.append(XMLNode('error'))
+		r['error'].nodes.append(XMLNode(reason))
 
 		return r
 
@@ -134,6 +135,10 @@ class Query(IQ):
 			client.send(r.toString())
 
 	def processRoster(self, xml, client):
+		if not xml.attrs.has_key('type'):
+			r = self.prepareError(xml, client, reason = 'invalid-stanza')
+			client.send(r.toString())
+
 		if xml.attrs['type'] == 'get':
 			try:
 				client.proxy.rosterRequest(xml.attrs['id'])
@@ -141,6 +146,16 @@ class Query(IQ):
 				print_exc()
 				r = self.prepareError(xml, client)
 				client.send(r.toString())
+		elif xml.attrs['type'] == 'set':
+			for n in xml['query']:
+				if isinstance(n, XMLNode) and n.name == 'item':
+					if n.attrs.has_key('subscription') and n.attrs['subscription'] == 'remove':
+						# User wan't remove subscription
+						if n.attrs.has_key('jid'):
+							client.proxy.rosterRemove(xml.attrs['id'], n.attrs['jid'])
+					else:
+						# Update roster item:
+						client.proxy.rosterUpdate(xml.attrs['id'], n)
 		else:
 			r = self.prepareError(xml, client)
 			client.send(r.toString())
