@@ -280,7 +280,7 @@ class Daemon(object):
 			os.close(0)    # close stdin
 
 		if os.name == 'nt':
-			raise DaemonError, "Not implemented for windows at time, sorry"
+			raise DaemonError, "Not implemented for windows at the time, sorry"
 		else:
 			# Set signal handlers:
 			sigs = { "SIGUSR1": self._sigusr1, "SIGTERM": self._sigterm }

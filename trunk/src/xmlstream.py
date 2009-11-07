@@ -71,6 +71,9 @@ print xml.toString()
 				return node
 		return None
 
+	def __iter__(self):
+		return iter(nodes)
+
 	def _quoteattr(self, s):
 		return s.replace('"', '&quot;')
 
@@ -210,7 +213,7 @@ class XMLInputStream(object):
 				if m:
 					xml = self.buf[:m.end(0)]
 					self.buf = self.buf[m.end(0):]
-					self._stream_close(xml)
+					self._stream_close()
 
 				m = _comment.match(self.buf)
 				if m:

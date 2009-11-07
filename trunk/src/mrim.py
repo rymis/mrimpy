@@ -45,7 +45,8 @@ import urllib
 #except:
 def log(msg):
 	import sys
-	print >>sys.stderr, "[MRIM] %s" % msg
+	import datetime
+	print >>sys.stderr, "[MRIM %s] %s" % (datetime.datetime.now().ctime(), msg)
 
 class MRIMError(Exception):
 	pass
@@ -232,11 +233,11 @@ For example:
 	def encode_type(self, type, val):
 		" encode value val of type type "
 		if type == 'UL':
-			return struct.pack('<l', int(val))
+			return struct.pack('<L', int(val))
 		elif type == 'LPS':
 			if isinstance(val, unicode):
 				val = val.encode(MRIM_ENCODING, 'replace')
-			return struct.pack('<l%ds'%len(val), len(val), val)
+			return struct.pack('<L%ds'%len(val), len(val), val)
 		elif type == 'UIDL':
 			if len(val) != 8:
 				raise MRIMError, "Invalid parameter passed to UIDL"
@@ -254,9 +255,9 @@ For example:
 	def decode_type(self, type, data):
 		" decode value of type from data "
 		if type == 'UL':
-			return (data[4:], struct.unpack('<l', data[:4])[0])
+			return (data[4:], struct.unpack('<L', data[:4])[0])
 		elif type == 'LPS':
-			ln = struct.unpack('<l', data[:4])[0]
+			ln = struct.unpack('<L', data[:4])[0]
 			return (data[ln+4:], data[4:ln+4])
 		elif type == 'LPSO':
 			if len(data) > 0:
@@ -275,7 +276,7 @@ For example:
 		elif type == 'UIDL':
 			return (data[8:], data[:8])
 		else:
-			raise MRIMError, "Unknon type: %s" % type
+			raise MRIMError, "Unknown type: %s" % type
 
 class MRIMPacket(object):
 	" Low-level MRIM message "
@@ -307,12 +308,13 @@ class MRIMPacket(object):
 			d = ''
 		else:
 			d = self.data
-		return struct.pack('<7l16s%ds'%len(d), self.magic, self.proto, self.seq, self.msg, len(d), self.__reverse(self.fromaddr), self.__reverse(self.fromport), res, d)
+		return struct.pack('<7L16s%ds'%len(d), self.magic, self.proto, self.seq, self.msg, len(d), self.__reverse(self.fromaddr), self.__reverse(self.fromport), res, d)
 
 	def send(self, sock):
 		" send MRIMPacket over network. addr and port will be calculated at this point "
 		self.fromaddr, self.fromport = sock.getsockname()
 		self.fromaddr = struct.unpack('>l', socket.inet_aton(self.fromaddr))[0]
+
 		str = self.encode()
 
 		while len(str) > 0:
@@ -552,19 +554,19 @@ class ContactList(object):
 			return
 
 		if res == CONTACT_OPER_SUCCESS:
-			self._process_operation(oper)
+			self._process_operation(oper, contact_id)
 		else:
 			raise MRIMError, "Operation failed: %s" % oper[3]
 
-	def _process_operation(self, oper):
+	def _process_operation(self, oper, contact_id = None):
 		if oper[1] == 'AC': # Add contact:
 			gid, name, nick = oper[2]
-			self.contacts.append( { 'group': gid, 'address': name, 'nick': nick, 'status': 0, 'flags': 0 } )
+			self.contacts.append( { 'group': gid, 'address': name, 'nick': nick, 'status': 0, 'flags': 0, 'id': contact_id } )
 		elif oper[1] == 'RC': # remove contact
 			name = oper[2]
 			for c in self.contacts:
 				if c['address'] == name:
-					del self.contacts[self.contacts.index(c)]
+					self.contacts.remove(c)
 					break
 		else:
 			# Unknown operation
@@ -595,15 +597,7 @@ class ContactList(object):
 
 	def add_contact(self, user, group, flags = 0):
 		" Add new contact to contact list "
-		msg = MRIMPacket(msg = MRIM_CS_ADD_CONTACT)
-		D = MRIMData( ('flags', 'UL', 'group', 'UL', 'name', 'LPS', 'unused', 'LPS') )
-		D.data['flags'] = flags
-		D.data['group'] = group
-		D.data['name'] = user
-		D.data['unused'] = ""
-		msg.data = D.encode()
-
-		seq = self.mrim.send_msg(msg)
+		seq = self.mrim.add_contact(user, group, flags)
 
 		self._operations.append([seq, 'AC', (group, user, user), 'Add user %s' % user])
 
@@ -628,8 +622,8 @@ class MailRuAgent(object):
 	def __init__(self, no_load_plugins = False):
 		self.sock = None
 		self.address = None # My address
-		self.ping_period = 60
-		self.seq = 0
+		self.ping_period = 30
+		self.seq = 1
 		self.plugins = {}
 		self.methods = {}
 		self.actions = {}
@@ -679,7 +673,7 @@ class MailRuAgent(object):
 			raise MRIMError, "Duplicate method definition: %s" % name
 		self.methods[name] = func
 
-	def connect(self, server = 'mrim.mail.ru', port = 2042):
+	def connect(self, server = 'mrim.mail.ru', port = 443):
 		" Connect to mail.ru server "
 		# Get IP:Port from mail.ru server:
 		sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, 0)
@@ -714,12 +708,13 @@ class MailRuAgent(object):
 		l.data['password'] = password
 		l.data['status'] = status
 		l.data['description'] = 'MRIM Python library v%s. <rymis@mail.ru>' % LIB_VERSION
+		l.data['description'] = "myagent-im"
+
 
 		log('Sending login...')
 		msg = MRIMPacket(msg = MRIM_LOGIN2)
-		msg.seq = self.seq
 		msg.data = l.encode()
-		msg.send(self)
+		self.send_msg(msg)
 		self.address = user
 
 	def send_msg(self, msg, seq = None):
@@ -735,6 +730,8 @@ class MailRuAgent(object):
 
 	def close(self):
 		" Logout and close connection "
+		from traceback import print_stack
+		print_stack()
 		if self.sock:
 			self.sock.close()
 			self.sock = None
@@ -750,8 +747,12 @@ class MailRuAgent(object):
 		return self.sock.getsockname()
 
 	def _send(self):
+		" This function send message from queue to network "
+		log('Sending message to network...')
+
 		if len(self._queue) == 0:
 			return
+
 		l = self.sock.send(self._queue[0])
 		if l < 0:
 			raise MRIMError, "Network problems"
@@ -819,8 +820,8 @@ class MailRuAgent(object):
 
 	def _ping(self):
 		msg = MRIMPacket(msg = MRIM_CS_PING)
-		seq = self.seq = self.seq + 1
-		seq -= 1
+		seq = self.seq
+		self.seq += 1
 		msg.seq = seq
 		msg.send(self)
 
@@ -900,6 +901,24 @@ class MailRuAgent(object):
 
 	def fileno(self):
 		return self.sock.fileno()
+
+	def add_contact(self, user, groupid, flags = 0):
+		" Add new contact to contact list "
+		msg = MRIMPacket(msg = MRIM_CS_ADD_CONTACT)
+		D = MRIMData( ('flags', 'UL', 'group', 'UL', 'name', 'LPS', 'unused', 'LPS') )
+		D.data['flags'] = flags
+		D.data['group'] = groupid
+		D.data['name'] = user
+		D.data['unused'] = ""
+		msg.data = D.encode()
+
+		seq = self.mrim.send_msg(msg)
+
+		return seq
+
+	def remove_contact(self, userid):
+		" Remove contact with specified id from contact list "
+		msg = MRIMPacket(msg = MRIM_CS_MODIFY_CONTACT)
 
 def load_avatar(email, domain):
 	" Loading avatar from HTTP "
