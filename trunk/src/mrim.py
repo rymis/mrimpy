@@ -21,7 +21,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 	Mail.ru agent protocol implementation with Python
 """
 
-LIB_VERSION = '0.01'
+LIB_VERSION = '0.02'
 __version__ = LIB_VERSION
 
 MRIM_ENCODING='cp1251'
@@ -52,7 +52,7 @@ class MRIMError(Exception):
 	pass
 
 PROTO_VERSION_MAJOR = 1
-PROTO_VERSION_MINOR = 7
+PROTO_VERSION_MINOR = 9
 PROTO_VERSION = (PROTO_VERSION_MAJOR << 16) | PROTO_VERSION_MINOR
 CS_MAGIC = 0xDEADBEEF
 STATUS_OFFLINE =	0x00000000
@@ -285,7 +285,7 @@ class MRIMPacket(object):
 	def __init__(self, magic = CS_MAGIC, proto = PROTO_VERSION, msg = None, fromaddr = 0, fromport = 0, data = None):
 		self.magic = magic
 		self.proto = proto
-		self.seq = -1
+		self.seq = 0
 		self.msg = msg
 
 		self.data = data
